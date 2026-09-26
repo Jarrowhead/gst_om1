@@ -3,9 +3,12 @@
 GST Filing App — 3-Agent Autonomous Build Loop.
 
 Roles (all via `hermes chat --oneshot` subprocesses):
-  BUILDER  = glm-5.3-flash      (writes code, follows docs)
-  TESTER   = deepseek-v4-flash  (runs tests, PASS/FAIL, re-verifies)
-  MONITOR  = glm-5.3-flash      (decides next task / escalates / advances phases)
+  BUILDER  = glm-5.3-flash       (writes code, follows docs)
+  TESTER   = deepseek-v4.1-flash (runs tests, PASS/FAIL, re-verifies)
+  MONITOR  = glm-5.3             (decides next task / escalates / advances phases)
+
+A singleton lock (build/loop.lock) prevents duplicate instances racing on
+state.json — a second launch exits immediately while a live loop holds it.
 
 The loop runs until all phases in build/plan.json are done, or the monitor
 escalates to the human, or MAX_ITERATIONS is hit. Every decision is logged
@@ -31,13 +34,14 @@ PLAN_PATH = os.path.join(BUILD_DIR, "plan.json")
 STATE_PATH = os.path.join(BUILD_DIR, "state.json")
 LOG_PATH = os.path.join(BUILD_DIR, "run.log")
 PROMPT_FILE = os.path.join(BUILD_DIR, "prompt.txt")
+LOCK_PATH = os.path.join(BUILD_DIR, "loop.lock")
 
 # ── Role model assignments ────────────────────────────────────────────────
 BUILDER_MODEL = "glm-5.3-flash"
 BUILDER_PROVIDER = "ollama-cloud"
-TESTER_MODEL = "deepseek-v4-flash"
+TESTER_MODEL = "deepseek-v4.1-flash"
 TESTER_PROVIDER = "ollama-cloud"
-MONITOR_MODEL = "glm-5.3-flash"
+MONITOR_MODEL = "glm-5.3"
 MONITOR_PROVIDER = "ollama-cloud"
 
 MAX_RETRIES = 2          # builder re-attempts after a tester FAIL
@@ -61,6 +65,52 @@ def load_json(path, default):
 def save_json(path, obj):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2, ensure_ascii=False)
+
+
+# ── Singleton lock ─────────────────────────────────────────────────────────
+
+def pid_alive(pid: int) -> bool:
+    """Best-effort cross-platform 'is this PID running?' check."""
+    try:
+        if os.name == "nt":
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
+                capture_output=True, text=True, timeout=15, check=False,
+            ).stdout
+            return f'"{pid}"' in out
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
+def acquire_lock() -> None:
+    """Refuse to start when another live loop holds the lock."""
+    if os.path.exists(LOCK_PATH):
+        try:
+            with open(LOCK_PATH, encoding="utf-8") as f:
+                other = int(f.read().strip())
+        except (ValueError, OSError):
+            other = None
+        if other and pid_alive(other):
+            print(f"ERROR: another build_loop.py is already running (pid {other}); "
+                  "refusing to start a duplicate.", flush=True)
+            sys.exit(3)
+        print(f"NOTE: stale lock (pid {other} not running) — taking over.", flush=True)
+    with open(LOCK_PATH, "w", encoding="utf-8") as f:
+        f.write(str(os.getpid()))
+
+
+def release_lock() -> None:
+    """Remove the lock file if this process owns it."""
+    try:
+        if os.path.exists(LOCK_PATH):
+            with open(LOCK_PATH, encoding="utf-8") as f:
+                owner = f.read().strip()
+            if owner == str(os.getpid()):
+                os.remove(LOCK_PATH)
+    except OSError:
+        pass
 
 
 def run_agent(model, provider, prompt, max_turns=250, timeout=1800):
@@ -122,7 +172,8 @@ HARD RULES (from docs/AI_BUILD_PLAYBOOK.md):
 5. ruff + mypy clean (backend); eslint + tsc clean (frontend). Lint failures block.
 6. Declare deps in pyproject.toml / package.json — never pip install at runtime.
 7. Do NOT touch files outside this task's scope.
-8. If a doc is ambiguous, STOP and say so in your final summary — do not guess in the GST domain.
+8. NEVER modify any file under build/ (plan.json, state.json, run.log, prompt.txt) or scripts/build_loop.py — those are the loop's own control files, not project code. Editing them corrupts the build loop.
+9. If a doc is ambiguous, STOP and say so in your final summary — do not guess in the GST domain.
 {fb}
 FINISH by running the task's verification yourself and reporting exact test names + counts in your final summary. Your final summary is what the Tester will read — be precise.
 """
@@ -217,6 +268,7 @@ def main():
         max_iters = int(sys.argv[sys.argv.index("--max-iters") + 1])
 
     os.makedirs(BUILD_DIR, exist_ok=True)
+    acquire_lock()
     state = load_json(STATE_PATH, {
         "iteration": 0, "status": "ready", "current_task": None,
         "tasks": {}, "last_monitor_decision": None, "escalations": [],
@@ -300,6 +352,7 @@ def main():
             break
 
     log("═══ loop ended ═══")
+    release_lock()
     return 0
 
 
