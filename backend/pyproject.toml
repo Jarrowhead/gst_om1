@@ -4,7 +4,15 @@ version = "0.1.0"
 description = "GST Filing Platform backend — FastAPI + SQLAlchemy 2 + Alembic"
 requires-python = ">=3.11"
 
-dependencies = []
+dependencies = [
+    "alembic>=1.13",
+    "asyncpg>=0.29",
+    "fastapi>=0.115",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "sqlalchemy[asyncio]>=2.0",
+]
 
 [dependency-groups]
 dev = [
@@ -25,7 +33,7 @@ select = ["E", "F", "I", "W", "UP", "B", "S", "ASYNC"]
 ignore = ["S101"]  # assert is fine in tests; S101 blocks everywhere else
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106"]
+"tests/**" = ["S101", "S105", "S106", "S603"]
 "app/**/tests/**" = ["S101"]
 
 [tool.mypy]
@@ -38,6 +46,7 @@ mypy_path = "."
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+asyncio_mode = "auto"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
