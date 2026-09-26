@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gst-filing.local/golden-set/ground-truth.schema.json",
+  "title": "Golden Set Ground Truth",
+  "type": "object",
+  "required": ["doc_id", "capture_source", "fields"],
+  "additionalProperties": false,
+  "properties": {
+    "doc_id": { "type": "string", "minLength": 1 },
+    "capture_source": {
+      "type": "string",
+      "enum": ["PDF_SCAN", "DIGITAL", "PHOTO", "WHATSAPP"]
+    },
+    "fields": {
+      "type": "object",
+      "required": [
+        "supplier_gstin", "buyer_gstin", "invoice_no", "invoice_date",
+        "place_of_supply", "is_inter_state", "rchrg", "inv_typ",
+        "taxable_value_paise", "total_value_paise",
+        "cgst_paise", "sgst_paise", "igst_paise", "cess_paise"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "supplier_gstin": { "type": ["string", "null"] },
+        "buyer_gstin": { "type": ["string", "null"] },
+        "invoice_no": { "type": ["string", "null"] },
+        "invoice_date": { "type": ["string", "null"], "description": "YYYY-MM-DD" },
+        "place_of_supply": { "type": ["string", "null"], "description": "2-digit state code" },
+        "is_inter_state": { "type": ["boolean", "null"] },
+        "rchrg": { "type": ["boolean", "null"] },
+        "inv_typ": { "type": ["string", "null"], "enum": ["R", "SEWP", "SEWOP", "DE", null] },
+        "taxable_value_paise": { "type": ["integer", "null"] },
+        "total_value_paise": { "type": ["integer", "null"] },
+        "cgst_paise": { "type": ["integer", "null"] },
+        "sgst_paise": { "type": ["integer", "null"] },
+        "igst_paise": { "type": ["integer", "null"] },
+        "cess_paise": { "type": ["integer", "null"] }
+      }
+    },
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "hsn_sac": { "type": "string" },
+          "desc": { "type": "string" },
+          "uqc": { "type": "string" },
+          "qty": { "type": "number" },
+          "unit_price_paise": { "type": "integer" },
+          "gst_rate": { "type": "number" },
+          "taxable_value_paise": { "type": "integer" },
+          "cgst_paise": { "type": "integer" },
+          "sgst_paise": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

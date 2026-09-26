@@ -1,0 +1,120 @@
+{
+  "project": "gst_filing_app",
+  "root": "D:/gst_filing_app",
+  "phases": [
+    {
+      "id": "0",
+      "name": "Skeleton",
+      "tasks": [
+        {
+          "id": "0.1",
+          "title": "Repo scaffold + tooling",
+          "docs": ["docs/TECHNICAL_ARCHITECTURE.md", "docs/AI_BUILD_PLAYBOOK.md"],
+          "done_when": "pyproject.toml (ruff+mypy), Next.js app initialized, CI workflows exist and run green on empty suites",
+          "status": "pending"
+        },
+        {
+          "id": "0.2",
+          "title": "bootstrap_stack.py + compose",
+          "docs": ["docs/TECHNICAL_ARCHITECTURE.md"],
+          "done_when": "scripts/bootstrap_stack.py starts PG:5436/Redis:6380/MinIO:9001 and health-checks all ports",
+          "status": "pending"
+        },
+        {
+          "id": "0.3",
+          "title": "DB models + Alembic migrations",
+          "docs": ["docs/TECHNICAL_ARCHITECTURE.md"],
+          "done_when": "alembic upgrade->downgrade->upgrade clean; all v2 tables present in core/gst/extraction schemas",
+          "status": "pending"
+        },
+        {
+          "id": "0.4",
+          "title": "Auth: OTP, JWT, refresh rotation, TOTP",
+          "docs": ["docs/SECURITY_AND_ACCESS.md", "docs/API_SPECIFICATION.md"],
+          "done_when": "L2 auth test suite passes incl. rate limit + refresh rotation kill",
+          "status": "pending"
+        },
+        {
+          "id": "0.5",
+          "title": "Guard dependency + audit logging",
+          "docs": ["docs/SECURITY_AND_ACCESS.md"],
+          "done_when": "cross-tenant matrix test passes (403/404 never leak data)",
+          "status": "pending"
+        },
+        {
+          "id": "0.6",
+          "title": "Businesses/registrations CRUD + GSTIN validation",
+          "docs": ["docs/API_SPECIFICATION.md", "docs/TECHNICAL_ARCHITECTURE.md"],
+          "done_when": "GSTIN mod-36 checksum + PAN==GSTIN[2..12] tests pass",
+          "status": "pending"
+        },
+        {
+          "id": "0.7",
+          "title": "Auth screens + shells",
+          "docs": ["docs/FRONTEND_SPECIFICATION.md"],
+          "done_when": "Playwright: both roles onboard, routed to correct shell",
+          "status": "pending"
+        },
+        {
+          "id": "0.8",
+          "title": "Phase-0 E2E + docs verification",
+          "docs": ["docs/TESTING_STRATEGY.md"],
+          "done_when": "scripts/e2e_phase0.py green; docs re-verified against code",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "1",
+      "name": "Capture & correlation",
+      "tasks": [
+        {
+          "id": "1.0",
+          "title": "Phase 1 — expand at runtime",
+          "docs": ["docs/PRD.md", "docs/TECHNICAL_ARCHITECTURE.md"],
+          "done_when": "Monitor decomposes this phase into tasks before starting it",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "name": "Returns engine",
+      "tasks": [
+        {
+          "id": "2.0",
+          "title": "Phase 2 — expand at runtime",
+          "docs": ["docs/PRD.md", "docs/TECHNICAL_ARCHITECTURE.md", "docs/EXTRACTION_SPEC.md"],
+          "done_when": "Monitor decomposes this phase into tasks before starting it",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "name": "Firm scale & compliance",
+      "tasks": [
+        {
+          "id": "3.0",
+          "title": "Phase 3 — expand at runtime",
+          "docs": ["docs/PRD.md", "docs/SECURITY_AND_ACCESS.md"],
+          "done_when": "Monitor decomposes this phase into tasks before starting it",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "name": "Direct filing (GSP)",
+      "tasks": [
+        {
+          "id": "4.0",
+          "title": "Phase 4 — expand at runtime",
+          "docs": ["docs/TECHNICAL_ARCHITECTURE.md"],
+          "done_when": "Monitor decomposes this phase into tasks before starting it",
+          "status": "pending"
+        }
+      ]
+    }
+  ]
+}
