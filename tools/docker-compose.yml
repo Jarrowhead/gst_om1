@@ -1,0 +1,27 @@
+version: "3.8"
+
+# GST Filing Platform — dockerized slice of the data stack (TECHNICAL_ARCHITECTURE.md §2/§4).
+# PG :5436 and Redis :6380 run NATIVELY (pg_ctl / redis-server, the Farmer-App way per
+# AI_BUILD_PLAYBOOK.md §3) — see scripts/bootstrap_stack.py. Only MinIO runs here, because
+# native minio.exe is no longer distributed (dl.min.io 410 Gone) and minio/minio was
+# removed from Docker Hub (2026-09). This repo pins pgsty/silo — the drop-in
+# MinIO-compatible fork (same S3/Admin API, same env vars); its image also bundles `mc`,
+# which bootstrap_stack.py uses via `docker exec` for bucket seeding.
+
+services:
+  gst_minio:
+    image: pgsty/silo:latest
+    container_name: gst_minio
+    restart: unless-stopped
+    command: server /data --address ":9000" --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${GST_MINIO_ROOT_USER:-gst_admin}
+      MINIO_ROOT_PASSWORD: ${GST_MINIO_ROOT_PASSWORD:-gst_minio_dev_pass}
+    ports:
+      - "127.0.0.1:9001:9000" # S3 API (doc port 9001)
+      - "127.0.0.1:9002:9001" # Web console (doc port 9002)
+    volumes:
+      - gst_minio_data:/data
+
+volumes:
+  gst_minio_data:
