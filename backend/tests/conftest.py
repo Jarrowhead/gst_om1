@@ -47,3 +47,44 @@ def _pg_available() -> bool:
 PG_AVAILABLE = _pg_available()
 
 requires_pg = pytest.mark.skipif(not PG_AVAILABLE, reason="PG:5436 not reachable")
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    """Reap gst_mig_test_* scratch DBs stranded by crashed runs (tester MUST-FIX)."""
+    try:
+        from sqlalchemy import create_engine, text
+
+        url = os.environ["GST_DATABASE_URL"].replace("+asyncpg", "+psycopg")
+        engine = create_engine(url.replace("/gst_filing_db", "/postgres"))
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("COMMIT"))
+                rows = conn.execute(
+                    text(
+                        "SELECT datname FROM pg_database "
+                        "WHERE datname LIKE 'gst_mig_test_%'"
+                    )
+                ).fetchall()
+                for (db_name,) in rows:
+                    conn.execute(
+                        text(
+                            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                            "WHERE datname = :db AND pid <> pg_backend_pid()"
+                        ).bindparams(db=db_name)
+                    )
+                    conn.execute(text(f'DROP DATABASE "{db_name}"'))
+                conn.commit()
+        finally:
+            engine.dispose()
+    except Exception:  # noqa: S110  best-effort hygiene; never block the suite
+        pass
+
+
+# --- auth fixtures (defined in auth_helpers.py; exposed via conftest) ---------
+# Fixture re-exports are intentionally "unused" here — pytest discovers them
+# through conftest's namespace, so the F401 must be silenced explicitly.
+from tests import auth_helpers as _auth_helpers  # noqa: E402, F401
+
+api_sessionmaker = _auth_helpers.api_sessionmaker
+client = _auth_helpers.client
+fake_redis = _auth_helpers.fake_redis
