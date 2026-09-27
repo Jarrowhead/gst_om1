@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json as _json
 import random
 import uuid
 from typing import Any
 
+import fakeredis.aioredis
 import pyotp
 import pytest
 from app.core.auth import tokens as token_svc
@@ -181,7 +183,7 @@ async def test_firm_create_shape_and_totp_guard(
 
 
 async def test_stepup_falls_back_mobile_when_email_otp_requested(
-    client: AsyncClient, api_sessionmaker: SessionMaker
+    client: AsyncClient, api_sessionmaker: SessionMaker, fake_redis: fakeredis.aioredis.FakeRedis
 ) -> None:
     """4(e): user with email AND mobile, OTP requested for MOBILE -> stepup 200."""
     mobile = _mobile()
@@ -193,7 +195,8 @@ async def test_stepup_falls_back_mobile_when_email_otp_requested(
     async with api_sessionmaker() as session:
         user = await session.get(User, user_id)
         assert user is not None
-        user.email = f"test+{uuid.uuid4().hex}@example.com"
+        email = f"test+{uuid.uuid4().hex}@example.com"
+        user.email = email
         await session.commit()
 
     # Request OTP against the mobile identifier (the fallback target)
@@ -211,3 +214,107 @@ async def test_stepup_falls_back_mobile_when_email_otp_requested(
     )
     assert resp.status_code == 200, resp.text
     assert "stepup_token" in resp.json()["data"]
+
+
+async def test_stepup_mobile_with_both_live(
+    client: AsyncClient, api_sessionmaker: SessionMaker, fake_redis: fakeredis.aioredis.FakeRedis
+) -> None:
+    """4(f): both email and mobile hold live OTPs; stepup with mobile OTP succeeds
+    and the email OTP remains live (second stepup with email OTP succeeds)."""
+    mobile = _mobile()
+    data = await _register_and_login(client, mobile)
+    access = data["access_token"]
+    headers = {"Authorization": f"Bearer {access}"}
+
+    user_id = token_svc.verify_access_token(access)
+    async with api_sessionmaker() as session:
+        user = await session.get(User, user_id)
+        assert user is not None
+        email = f"test+{uuid.uuid4().hex}@example.com"
+        user.email = email
+        await session.commit()
+
+    # Request OTPs for both identifiers and read both dev_otp values.
+    req_mobile = await client.post(
+        "/api/v1/auth/otp/request",
+        json={"identifier": mobile, "purpose": "LOGIN"},
+    )
+    assert req_mobile.status_code == 200, req_mobile.text
+    mobile_otp = req_mobile.json()["data"]["dev_otp"]
+
+    req_email = await client.post(
+        "/api/v1/auth/otp/request",
+        json={"identifier": email, "purpose": "LOGIN"},
+    )
+    assert req_email.status_code == 200, req_email.text
+    email_otp = req_email.json()["data"]["dev_otp"]
+
+    # Step-up with mobile OTP.
+    resp1 = await client.post(
+        "/api/v1/auth/stepup",
+        headers=headers,
+        json={"otp": mobile_otp},
+    )
+    assert resp1.status_code == 200, resp1.text
+    assert "stepup_token" in resp1.json()["data"]
+
+    # Email OTP is still live.
+    assert await fake_redis.exists(f"otp:{email}") == 1
+
+    # Step-up with email OTP still succeeds.
+    resp2 = await client.post(
+        "/api/v1/auth/stepup",
+        headers=headers,
+        json={"otp": email_otp},
+    )
+    assert resp2.status_code == 200, resp2.text
+    assert "stepup_token" in resp2.json()["data"]
+
+
+async def test_stepup_wrong_otp_does_not_burn_attempts(
+    client: AsyncClient, api_sessionmaker: SessionMaker, fake_redis: fakeredis.aioredis.FakeRedis
+) -> None:
+    """4(g): wrong OTP when both are live -> 401 OTP_INVALID and neither
+    identifier's attempts counter advanced beyond the single recorded attempt."""
+    mobile = _mobile()
+    data = await _register_and_login(client, mobile)
+    access = data["access_token"]
+    headers = {"Authorization": f"Bearer {access}"}
+
+    user_id = token_svc.verify_access_token(access)
+    async with api_sessionmaker() as session:
+        user = await session.get(User, user_id)
+        assert user is not None
+        email = f"test+{uuid.uuid4().hex}@example.com"
+        user.email = email
+        await session.commit()
+
+    # Request OTPs for both identifiers and read both dev_otp values.
+    req_mobile = await client.post(
+        "/api/v1/auth/otp/request",
+        json={"identifier": mobile, "purpose": "LOGIN"},
+    )
+    assert req_mobile.status_code == 200, req_mobile.text
+    mobile_otp = req_mobile.json()["data"]["dev_otp"]
+
+    req_email = await client.post(
+        "/api/v1/auth/otp/request",
+        json={"identifier": email, "purpose": "LOGIN"},
+    )
+    assert req_email.status_code == 200, req_email.text
+    email_otp = req_email.json()["data"]["dev_otp"]
+
+    wrong = "000000" if mobile_otp != "000000" and email_otp != "000000" else "111111"
+    resp = await client.post(
+        "/api/v1/auth/stepup",
+        headers=headers,
+        json={"otp": wrong},
+    )
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "OTP_INVALID"
+
+    for ident in (email, mobile):
+        raw = await fake_redis.get(f"otp:{ident}")
+        assert raw is not None, f"otp:{ident} should still exist"
+        rec = _json.loads(raw)
+        assert rec["attempts"] == 0, f"otp:{ident} attempts advanced to {rec['attempts']}"

@@ -100,6 +100,12 @@ class MeEnvelope(BaseModel):
     success: bool = True
     data: MeOut
 
+
+class FirmEnvelope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    success: bool = True
+    data: FirmOut
+
 class FirmCreateIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

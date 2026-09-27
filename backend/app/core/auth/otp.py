@@ -100,3 +100,9 @@ async def verify_otp(redis: Redis, identifier: str, otp: str) -> str:
         raise OtpInvalid("incorrect OTP")
     await redis.delete(_otp_key(identifier))
     return str(record["purpose"])
+
+
+async def peek_otp(redis: Redis, identifier: str) -> dict[str, object] | None:
+    """Read-only OTP record lookup; no writes, no validation, cannot raise."""
+    raw = await redis.get(_otp_key(identifier))
+    return None if raw is None else json.loads(raw)

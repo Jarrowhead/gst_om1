@@ -14,6 +14,7 @@ from app.core.auth import totp as totp_svc
 from app.core.auth.errors import (
     InvalidCredentials,
     OtpExpired,
+    OtpInvalid,
     TokenInvalid,
     TotpInvalid,
 )
@@ -103,26 +104,24 @@ async def refresh(
 async def stepup(session: AsyncSession, user_id: uuid.UUID, otp: str) -> dict[str, str]:
     """POST /auth/stepup — fresh OTP proves the user for sensitive routes.
 
-    Identifier order is email first, then mobile fallback. We catch only
-    OtpExpired during the loop so wrong-code / attempts-exhausted still
-    propagate immediately.
+    We peek all live OTP records for the user's identifiers, match the supplied
+    code without consuming attempts, and only verify (delete) the matching one.
+    OtpExpired / OtpTooManyAttempts semantics are preserved per identifier.
     """
     redis = get_redis()
     user = await session.get(User, user_id)
     if user is None:
         raise InvalidCredentials("unknown user")
     idents = [i for i in (user.email, user.mobile) if i]
-    last_expired: OtpExpired | None = None
-    for ident in idents:
-        try:
-            await otp_svc.verify_otp(redis, ident, otp)
-            break
-        except OtpExpired as exc:
-            last_expired = exc
-    else:
-        if last_expired is not None:
-            raise last_expired
+    if not idents:
         raise InvalidCredentials("no identifier available for step-up")
+    live = [(i, r) for i in idents if (r := await otp_svc.peek_otp(redis, i)) is not None]
+    if not live:
+        raise OtpExpired("no active OTP for this identifier")
+    match = next((i for i, r in live if r["code"] == otp), None)  # identical codes -> email first
+    if match is None:
+        raise OtpInvalid("incorrect OTP")  # no counter touched anywhere
+    await otp_svc.verify_otp(redis, match, otp)  # attempts++, delete, raises on exhausted
     return {"stepup_token": token_svc.create_stepup_token(user_id)}
 
 
