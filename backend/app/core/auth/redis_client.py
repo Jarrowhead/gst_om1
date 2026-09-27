@@ -19,21 +19,36 @@ def get_redis() -> Redis:
     global _pool, _client
     if _client is None:
         _pool = ConnectionPool.from_url(
-            get_settings().redis_url, decode_responses=True
+            get_settings().redis_url, decode_responses=True, protocol=2
         )
         _client = Redis(connection_pool=_pool)
     return _client
 
 
+async def _close_client() -> None:
+    global _client
+    if _client is not None:
+        try:
+            await _client.aclose()
+        except Exception:  # noqa: BLE001, S110
+            pass
+        _client = None
+
+
+async def _close_pool() -> None:
+    global _pool
+    if _pool is not None:
+        try:
+            await _pool.disconnect()
+        except Exception:  # noqa: BLE001, S110
+            pass
+        _pool = None
+
+
 async def close_redis() -> None:
     """Dispose the client + pool (app shutdown / test teardown)."""
-    global _pool, _client
-    if _client is not None:
-        await _client.aclose()
-        _client = None
-    if _pool is not None:
-        await _pool.disconnect()
-        _pool = None
+    await _close_client()
+    await _close_pool()
 
 
 def set_client(client: Redis | None) -> None:
