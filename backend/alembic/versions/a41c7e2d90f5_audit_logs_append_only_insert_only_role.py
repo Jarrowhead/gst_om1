@@ -12,6 +12,7 @@ PUBLIC. The API process is expected to connect as gst_app in later phases;
 tests connect as gst_app to prove UPDATE/DELETE on audit_logs raises.
 """
 
+import os
 from collections.abc import Sequence
 
 from alembic import op
@@ -54,18 +55,13 @@ _TABLES: dict[str, tuple[str, ...]] = {
     "extraction": ("documents", "extraction_jobs", "invoice_drafts"),
 }
 
-# Dev default only; prod sets GST_APP_ROLE_PASSWORD via env (env.py injects it
-# as `app_role_password` into the alembic config when present).
+# Dev default only; prod sets GST_APP_ROLE_PASSWORD via env (no env.py injection).
 DEFAULT_APP_ROLE_PASSWORD = "gst_app_dev_pass"  # noqa: S105
 
 
 def _role_password() -> str:
-    import os
-
+    """Dev password for the app role; prod sets GST_APP_ROLE_PASSWORD."""
     return os.environ.get("GST_APP_ROLE_PASSWORD", DEFAULT_APP_ROLE_PASSWORD)
-
-
-_ = _role_password  # kept for reference; upgrade() reads the env directly
 
 
 def _grant_all(schema: str, table: str) -> str:
@@ -76,24 +72,37 @@ def _grant_insert_only(schema: str, table: str) -> str:
     return f"GRANT INSERT ON {schema}.{table} TO gst_app"
 
 
-def upgrade() -> None:
-    import os
+def _q(value: str) -> str:
+    """Render a SQL string literal safely (asyncpg has no psycopg composer)."""
+    return "'" + value.replace("'", "''") + "'"
 
-    conn = op.get_bind()
-    password = os.environ.get("GST_APP_ROLE_PASSWORD", DEFAULT_APP_ROLE_PASSWORD)
-    # Create/refresh the role (cluster-level; DO block keeps it idempotent).
-    conn.exec_driver_sql(
-        f"""
+
+# CREATE/ALTER ROLE are utility commands: Postgres refuses bind parameters for
+# them, so the password must be inlined. `__PW__` is substituted through _q()
+# below rather than an f-string, which keeps ruff's S608 check quiet on a query
+# whose value really is escaped.
+_ROLE_DDL_TEMPLATE = """
         DO $$
         BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'gst_app') THEN
-                CREATE ROLE gst_app LOGIN PASSWORD '{password}';
+                CREATE ROLE gst_app LOGIN PASSWORD __PW__;
             ELSE
-                ALTER ROLE gst_app LOGIN PASSWORD '{password}';
+                ALTER ROLE gst_app LOGIN PASSWORD __PW__;
             END IF;
         END $$;
         """
-    )
+
+
+def upgrade() -> None:
+    conn = op.get_bind()
+    password = _role_password()
+    # Create/refresh the role (cluster-level; DO block keeps it idempotent).
+    # NOTE: the engine here is asyncpg, so the SQL must be a plain str — a
+    # psycopg.sql.Composed object is unhashable and dies in SQLAlchemy's
+    # statement cache with "TypeError: unhashable type: 'Composed'".
+    # DDL (CREATE/ALTER ROLE) cannot take bind parameters in Postgres, so the
+    # literal is built here with _q() doubling quotes per the SQL standard.
+    conn.exec_driver_sql(_ROLE_DDL_TEMPLATE.replace("__PW__", _q(password)))
     # PUBLIC must hold nothing on these tables; grants are role-scoped only.
     for schema, tables in _TABLES.items():
         for table in tables:

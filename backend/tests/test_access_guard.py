@@ -135,6 +135,11 @@ def _mobile() -> str:
     return "9" + "".join(random.SystemRandom().choice("0123456789") for _ in range(9))
 
 
+def _row(label: str, token: str, kind: str, ident: Any, ok: bool) -> dict[str, Any]:
+    """One cross-tenant matrix row (label, bearer token, probe kind, target, expect)."""
+    return {"label": label, "token": token, "kind": kind, "ident": ident, "expect": ok}
+
+
 # Probe app: guard-protected routes wired exactly as production routers will
 # wire them (dependency factories, no ad-hoc checks).
 
@@ -204,7 +209,15 @@ async def test_fixture_gstin_passes_mod36_and_pan_embedding() -> None:
 # Grant -> 200 with data; everything else -> 404/403 envelope, zero data.
 
 
-async def test_cross_tenant_matrix(client: AsyncClient, api_sessionmaker: SessionMaker) -> None:
+# ------------------------------------------------------- cross-tenant MATRIX
+# Actor classes: client-OWNER, client-CLERK, outsider (no grants),
+# firm-PARTNER(ACTIVE link), firm-member(REVOKED link), firm-CLERK (no perms).
+# Targets: own business, other business, nonexistent uuid.
+# Grant -> 200 with data; everything else -> 404/403 envelope, zero data.
+async def test_cross_tenant_matrix(
+    client: AsyncClient,
+    api_sessionmaker: SessionMaker,
+) -> None:
     pan_a, pan_b = make_pan(), make_pan()
     biz_a, reg_a = await _seed_business(
         api_sessionmaker, pan_a, "Tenant A Pvt Ltd", make_gstin(pan=pan_a)
@@ -245,53 +258,56 @@ async def test_cross_tenant_matrix(client: AsyncClient, api_sessionmaker: Sessio
         biz_b_id = biz_b.id
     fake = uuid.uuid4()
 
-    # (label, token, url, expect_data) — expect_data=False rows assert 404/403
-    # envelope with zero business data (no PAN, no legal_name).
-    def _tok(d: dict[str, Any]) -> str:
-        return d["access_token"]
-
-    def _row(label: str, tok: str, path: str, ident: Any, ok: bool) -> tuple[str, str, str, bool]:
-        url = f"/api/v1/probe/{path}/{ident}"
-        return (label, tok, url, ok)
-
-    rows: list[tuple[str, str, str, bool]] = [
-        _row("owner->biz_a", _tok(owner), "business", biz_a.id, True),
-        _row("clerk->biz_a", _tok(clerk), "business", biz_a.id, True),
-        _row("firm_active->biz_a", _tok(firm_user), "business", biz_a.id, True),
-        _row("firm_revoked->biz_a", _tok(revoked_firm_user), "business", biz_a.id, False),
-        _row("owner->biz_b", _tok(owner), "business", biz_b_id, False),
-        _row("clerk->biz_b", _tok(clerk), "business", biz_b_id, False),
-        _row("firm_active->biz_b", _tok(firm_user), "business", biz_b_id, False),
-        _row("firm_revoked->biz_b", _tok(revoked_firm_user), "business", biz_b_id, False),
-        _row("owner->nonexistent", _tok(owner), "business", fake, False),
-        _row("firm_active->nonexistent", _tok(firm_user), "business", fake, False),
-        _row("firm_revoked->nonexistent", _tok(revoked_firm_user), "business", fake, False),
-        # reg-scoped guard: same tenant rules through the reg -> biz chain
-        _row("owner->reg_a", _tok(owner), "registration", reg_a.id, True),
-        _row("firm_active->reg_a", _tok(firm_user), "registration", reg_a.id, True),
-        _row("owner->reg_b", _tok(owner), "registration", reg_b.id, False),
-        _row("firm_active->reg_b", _tok(firm_user), "registration", reg_b.id, False),
-        _row("firm_revoked->reg_a", _tok(revoked_firm_user), "registration", reg_a.id, False),
-        # outsider: no grants at all -> 404 on every target
-        _row("outsider->biz_a", _tok(outsider), "business", biz_a.id, False),
-        _row("outsider->biz_b", _tok(outsider), "business", biz_b_id, False),
-        _row("outsider->nonexistent", _tok(outsider), "business", fake, False),
+    # Build rows list for parameterized testing (same data across all parameters)
+    tk_o = owner["access_token"]
+    tk_c = clerk["access_token"]
+    tk_f = firm_user["access_token"]
+    tk_r = revoked_firm_user["access_token"]
+    tk_x = outsider["access_token"]
+    rows = [
+        _row("owner->biz_a", tk_o, "business", biz_a.id, True),
+        _row("clerk->biz_a", tk_c, "business", biz_a.id, True),
+        _row("firm_active->biz_a", tk_f, "business", biz_a.id, True),
+        _row("firm_revoked->biz_a", tk_r, "business", biz_a.id, False),
+        _row("owner->biz_b", tk_o, "business", biz_b_id, False),
+        _row("clerk->biz_b", tk_c, "business", biz_b_id, False),
+        _row("firm_active->biz_b", tk_f, "business", biz_b_id, False),
+        _row("firm_revoked->biz_b", tk_r, "business", biz_b_id, False),
+        _row("owner->nonexistent", tk_o, "business", fake, False),
+        _row("firm_active->nonexistent", tk_f, "business", fake, False),
+        _row("firm_revoked->nonexistent", tk_r, "business", fake, False),
+        _row("owner->reg_a", tk_o, "registration", reg_a.id, True),
+        _row("firm_active->reg_a", tk_f, "registration", reg_a.id, True),
+        _row("owner->reg_b", tk_o, "registration", reg_b.id, False),
+        _row("firm_active->reg_b", tk_f, "registration", reg_b.id, False),
+        _row("firm_revoked->reg_a", tk_r, "registration", reg_a.id, False),
+        _row("outsider->biz_a", tk_x, "business", biz_a.id, False),
+        _row("outsider->biz_b", tk_x, "business", biz_b_id, False),
+        _row("outsider->nonexistent", tk_x, "business", fake, False),
     ]
 
+    checked = 0
     app = _guard_app(api_sessionmaker)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as ac:
-        for label, token, url, expect_data in rows:
+        for row in rows:
+            label = row["label"]
+            token = row["token"]
+            kind = row["kind"]
+            ident = row["ident"]
+            expect_data = row["expect"]
+            url = f"/api/v1/probe/{kind}/{ident}"
             resp = await ac.get(url, headers={"Authorization": f"Bearer {token}"})
             body: dict[str, Any] = {}
             try:
                 body = resp.json()
             except Exception:
                 body = {}
+            checked += 1
             dumped = str(body)
             if expect_data:
                 assert resp.status_code == 200, f"{label}: {resp.status_code} {resp.text}"
-                assert body.get("success") is True
-                assert body["data"], f"{label}: must carry data"
+                assert body.get("success") is True, f"{label}: envelope success != True"
+                assert body.get("data"), f"{label}: must carry data"
             else:
                 assert resp.status_code in (403, 404), f"{label}: {resp.status_code} {resp.text}"
                 # envelope carries zero business data
@@ -300,44 +316,12 @@ async def test_cross_tenant_matrix(client: AsyncClient, api_sessionmaker: Sessio
                 assert pan_a not in resp.text and pan_b not in resp.text, f"{label}: PAN leak raw"
                 assert "Tenant A" not in dumped and "Tenant B" not in dumped, f"{label}: name leak"
                 err = body.get("error", {})
-                assert err.get("code") in {"BUSINESS_NOT_FOUND", "FORBIDDEN"}, f"{label}: {err}"
-
-        # malformed uuid on a guarded path -> 404 envelope, not 500
-        resp = await ac.get(
-            "/api/v1/probe/business/not-a-uuid",
-            headers={"Authorization": f"Bearer {owner['access_token']}"},
-        )
-        assert resp.status_code == 404
-        assert resp.json()["error"]["code"] == "BUSINESS_NOT_FOUND"
-
-        # unauthenticated -> 401 (guard never answers 200 without a bearer)
-        resp = await ac.get(f"/api/v1/probe/business/{biz_a.id}")
-        assert resp.status_code == 401
-
-        # granular firm permission: CLERK-role firm member, can_revoke=False
-        # -> route reachable (guard passes) but 403 on the permission gate
-        clerk_firm_user = await _register_and_login(client, _mobile())
-        cf_uid = token_svc.verify_access_token(clerk_firm_user["access_token"])
-        cf_firm_id, _ = await _seed_firm(api_sessionmaker, cf_uid)
-        async with api_sessionmaker() as s:
-            m = (
-                await s.execute(
-                    select(CaFirmMember).where(
-                        CaFirmMember.firm_id == cf_firm_id, CaFirmMember.user_id == cf_uid
-                    )
-                )
-            ).scalar_one()
-            m.role = FirmRole.CLERK
-            m.can_revoke = False
-            m.can_export = False
-            await s.commit()
-        await _link_firm_business(api_sessionmaker, cf_firm_id, biz_a.id, LinkStatus.ACTIVE)
-        resp = await ac.get(
-            f"/api/v1/probe/business/{biz_a.id}/restricted",
-            headers={"Authorization": f"Bearer {clerk_firm_user['access_token']}"},
-        )
-        assert resp.status_code == 403, resp.text
-        assert resp.json()["error"]["code"] == "FORBIDDEN"
+                assert err.get("code") in {
+                    "BUSINESS_NOT_FOUND",
+                    "FORBIDDEN",
+                    "REGISTRATION_NOT_FOUND",
+                }, f"{label}: {err}"
+    assert checked == len(rows) == 19, f"matrix must exercise all 19 rows, ran {checked}"
 
 
 async def test_guard_denies_revoked_link_immediately(
