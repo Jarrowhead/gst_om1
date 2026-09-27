@@ -13,11 +13,12 @@ from app.core.auth import tokens as token_svc
 from app.core.auth import totp as totp_svc
 from app.core.auth.errors import (
     InvalidCredentials,
+    OtpExpired,
     TokenInvalid,
     TotpInvalid,
 )
 from app.core.auth.redis_client import get_redis
-from app.db.models.core import User
+from app.db.models.core import BusinessUser, CaFirm, CaFirmMember, User
 
 
 def _user_out(user: User) -> dict[str, object]:
@@ -100,9 +101,28 @@ async def refresh(
 
 
 async def stepup(session: AsyncSession, user_id: uuid.UUID, otp: str) -> dict[str, str]:
-    """POST /auth/stepup — fresh OTP proves the user for sensitive routes."""
+    """POST /auth/stepup — fresh OTP proves the user for sensitive routes.
+
+    Identifier order is email first, then mobile fallback. We catch only
+    OtpExpired during the loop so wrong-code / attempts-exhausted still
+    propagate immediately.
+    """
     redis = get_redis()
-    await otp_svc.verify_otp(redis, await _identifier_of(session, user_id), otp)
+    user = await session.get(User, user_id)
+    if user is None:
+        raise InvalidCredentials("unknown user")
+    idents = [i for i in (user.email, user.mobile) if i]
+    last_expired: OtpExpired | None = None
+    for ident in idents:
+        try:
+            await otp_svc.verify_otp(redis, ident, otp)
+            break
+        except OtpExpired as exc:
+            last_expired = exc
+    else:
+        if last_expired is not None:
+            raise last_expired
+        raise InvalidCredentials("no identifier available for step-up")
     return {"stepup_token": token_svc.create_stepup_token(user_id)}
 
 
@@ -165,4 +185,21 @@ async def me(session: AsyncSession, user_id: uuid.UUID) -> dict[str, object]:
     user = await session.get(User, user_id)
     if user is None:
         raise TokenInvalid("user no longer exists")
-    return _user_out(user)
+    business_rows = await session.execute(
+        select(BusinessUser.business_id).where(BusinessUser.user_id == user_id)
+    )
+    business_ids = [str(row[0]) for row in business_rows]
+    firm_rows = (
+        await session.execute(
+            select(CaFirmMember)
+            .join(CaFirm, CaFirm.id == CaFirmMember.firm_id)
+            .where(CaFirmMember.user_id == user_id)
+            .order_by(CaFirm.created_at.asc(), CaFirmMember.joined_at.asc())
+        )
+    ).scalars().all()
+    firm_id = str(firm_rows[0].firm_id) if firm_rows else None
+    return {
+        "user": _user_out(user),
+        "businesses": business_ids,
+        "firm": firm_id,
+    }

@@ -44,6 +44,11 @@ async def enable_totp(secret: str, code: str) -> bool:
     return True
 
 
+def is_enabled(secret: str | None, enabled_at: object) -> bool:
+    """True when the user has completed TOTP setup and verification."""
+    return secret is not None and enabled_at is not None
+
+
 def assert_not_enabled(secret: str | None, enabled_at: object) -> None:
     """409 if TOTP is already active for the user."""
     if secret is not None and enabled_at is not None:

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Cookie, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.schemas import (
+    MeEnvelope,
     OtpRequestIn,
     OtpVerifyIn,
     RefreshIn,
@@ -103,6 +104,6 @@ async def totp_verify(
     return {"success": True, "data": await service.totp_verify(session, user_id, body.code)}
 
 
-@router.get("/me")
+@router.get("/me", response_model=MeEnvelope)
 async def me(session: SessionDep, user_id: UserDep) -> dict[str, object]:
-    return {"success": True, "data": {"user": await service.me(session, user_id)}}
+    return {"success": True, "data": await service.me(session, user_id)}
