@@ -33,8 +33,10 @@ def make_pan() -> str:
 def _check_digit(first14: str) -> str:
     """Mod-36 checksum character over the first 14 GSTIN chars.
 
-    check = CHARSET[(36 - total % 36) % 36] — the complement form (ISO 7064
-    MOD 37-36 family); verified against real GSTIN 33AAACC1206D1ZN -> 'N'.
+    Implements the GSTN-spec ISO 7064 MOD 37-36 complement form:
+    check = CHARSET[(36 - total % 36) % 36].
+    Verified against worked example 27AAPFU0939F1ZV (sum 221 -> V)
+    and unissued checksum-valid vectors 27AAACR5055K1Z7, 00AAACR5055K1ZN.
     """
     total = 0
     for i, ch in enumerate(first14):

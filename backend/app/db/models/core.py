@@ -12,12 +12,12 @@ from typing import Any
 
 from app.db.base import Base
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     Enum,
     ForeignKey,
     Index,
-    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -206,7 +206,7 @@ class GstRegistration(Base):
     )
     irn_applicable: Mapped[bool] = mapped_column(Boolean, default=False)
     aato_latest_minor: Mapped[int] = mapped_column(
-        Integer, default=0, nullable=False
+        BigInteger, default=0, nullable=False
     )
     registered_address: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(

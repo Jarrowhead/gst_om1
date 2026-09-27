@@ -208,7 +208,11 @@ async def test_money_columns_are_integer_paise(scratch_db: str) -> None:
         await engine.dispose()
     assert rows, "no *_minor columns found — migration did not apply?"
     for _schema, _table, _column, data_type in rows:
-        assert data_type == "integer", (
-            f"{_schema}.{_table}.{_column} is {_schema and data_type}, must be integer"
+        assert data_type in {"integer", "bigint"}, (
+            f"{_schema}.{_table}.{_column} is {data_type}, must be integer or bigint"
         )
+        if data_type == "bigint":
+            assert _table + "." + _column == "gst_registrations.aato_latest_minor", (
+                f"unexpected bigint column {_schema}.{_table}.{_column}"
+            )
     assert len(rows) == 18  # exact: 7 invoice_lines + 5 cdns + 5 2b + aato + total

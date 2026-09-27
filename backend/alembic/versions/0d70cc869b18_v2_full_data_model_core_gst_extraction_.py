@@ -283,7 +283,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("irn_applicable", sa.Boolean(), nullable=False),
-        sa.Column("aato_latest_minor", sa.Integer(), nullable=False),
+        sa.Column("aato_latest_minor", sa.BigInteger(), nullable=False),
         sa.Column("registered_address", sa.Text(), nullable=True),
         sa.Column(
             "created_at",

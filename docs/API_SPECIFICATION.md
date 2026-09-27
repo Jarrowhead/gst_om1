@@ -41,7 +41,7 @@
 | POST | `/businesses` | `{legal_name, pan, trade_name?}` — PAN validated |
 | GET | `/businesses` | my businesses (via business_users) |
 | GET | `/businesses/{id}` | detail incl. registrations |
-| POST | `/businesses/{id}/registrations` | `{gstin, registered_address?, aato_minor?}` — full GSTIN validation + PAN==GSTIN[2..12]; sets `filing_scheme`, `irn_applicable` |
+| POST | `/businesses/{id}/registrations` | `{gstin, registered_address?, aato_minor? (paise, int)}` — full GSTIN validation + PAN==GSTIN[2..12]; sets `filing_scheme`, `irn_applicable` |
 | GET/PATCH | `/registrations/{regId}` | incl. scheme/irn flags |
 | GET | `/registrations/{regId}/periods?fy=` | filing_periods with due dates + status |
 | GET | `/registrations/{regId}/months/{fp}/summary` | month card data: doc counts, ledger totals, deadline, nil flag |

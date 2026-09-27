@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 from app.db import base as app_db_base
 from app.db.base import Base
+
 from tests.conftest import PG_AVAILABLE, requires_pg
 
 app_db_base.all_models()
@@ -126,21 +127,21 @@ def test_model_metadata_registers_all_25_tables() -> None:
 
 
 def test_money_columns_are_integer_paise() -> None:
-    """No float money anywhere: *_minor columns must be Integer-typed."""
+    """No float money anywhere: *_minor columns must be Integer/BigInteger-typed."""
     from decimal import Decimal
 
-    from sqlalchemy import Integer, Numeric
+    from sqlalchemy import BigInteger, Integer, Numeric
 
     app_db_base.all_models()
     for table in Base.metadata.sorted_tables:
         for column in table.columns:
             if column.name.endswith("_minor"):
-                assert isinstance(column.type, Integer), (
+                assert isinstance(column.type, (Integer, BigInteger)), (
                     f"{table.schema}.{table.name}.{column.name} is "
-                    f"{column.type!r}, expected Integer (paise rule)"
+                    f"{column.type!r}, expected Integer/BigInteger (paise rule)"
                 )
             if isinstance(column.type, Numeric) and not isinstance(
-                column.type, Integer
+                column.type, (Integer, BigInteger)
             ):
                 assert isinstance(
                     getattr(column.type, "_type_affinity", None), type
