@@ -87,6 +87,10 @@ let refreshPromise: Promise<boolean> | null = null;
 /**
  * Keep the access JWT in module memory (not localStorage).
  *
+ * Flow:
+ *   1. Store the string, or null on sign-out.
+ *   2. apiFetch reads it on the next call and sets Authorization: Bearer.
+ *
  * Debug:
  *   A full page reload drops it; shells call silentRefresh() first.
  */
@@ -94,7 +98,15 @@ export function setAccessToken(token: string | null): void {
   accessToken = token;
 }
 
-/** True when an access JWT is currently in memory. */
+/**
+ * True when an access JWT is currently in memory.
+ *
+ * Flow:
+ *   Compare accessToken to null. Does not call the server.
+ *
+ * Debug:
+ *   True after verifyOtp + setAccessToken. False after reload until silentRefresh succeeds.
+ */
 export function hasAccessToken(): boolean {
   return accessToken !== null;
 }
@@ -210,7 +222,16 @@ export async function silentRefresh(): Promise<boolean> {
   return refreshPromise;
 }
 
-/** POST /auth/otp/request. purpose REGISTER or LOGIN. Dev mode may return dev_otp. */
+/**
+ * POST /auth/otp/request.
+ *
+ * Flow:
+ *   1. apiFetch sends {identifier, purpose} where purpose is REGISTER or LOGIN.
+ *   2. Return {otp_sent, dev_otp}. dev_otp is set only when the API is in dev mode.
+ *
+ * Debug:
+ *   429 is the 5-per-hour limit. A missing banner means dev_otp was null.
+ */
 export async function requestOtp(
   identifier: string,
   purpose: "LOGIN" | "REGISTER",
@@ -221,7 +242,17 @@ export async function requestOtp(
   });
 }
 
-/** POST /auth/otp/verify. Caller must setAccessToken from the returned access_token. */
+/**
+ * POST /auth/otp/verify.
+ *
+ * Flow:
+ *   1. apiFetch sends {identifier, otp}.
+ *   2. Return user plus access_token and refresh_token.
+ *   3. This function does not store the token; the page must call setAccessToken.
+ *
+ * Debug:
+ *   401 OTP_INVALID or OTP_EXPIRED. REGISTER purpose creates the user; LOGIN does not.
+ */
 export async function verifyOtp(
   identifier: string,
   otp: string,
@@ -232,17 +263,44 @@ export async function verifyOtp(
   });
 }
 
-/** GET /auth/me. Needs a bearer token. firm null means client shell. */
+/**
+ * GET /auth/me.
+ *
+ * Flow:
+ *   1. apiFetch sends the bearer token.
+ *   2. Return user, business ids, and firm id.
+ *
+ * Debug:
+ *   firm null means the client shell even if the user picked CA. 401 triggers a refresh retry inside apiFetch.
+ */
 export async function fetchMe(): Promise<MeDto> {
   return apiFetch("/auth/me");
 }
 
-/** POST /auth/totp/setup. Returns secret and otpauth qr_uri. 409 if already enabled. */
+/**
+ * POST /auth/totp/setup.
+ *
+ * Flow:
+ *   1. apiFetch with the bearer token and no body.
+ *   2. Return {secret, qr_uri} for the QR and the manual key.
+ *
+ * Debug:
+ *   409 TOTP_ALREADY_ENABLED if this account already finished verify.
+ */
 export async function totpSetup(): Promise<TotpSetupResult> {
   return apiFetch("/auth/totp/setup", { method: "POST" });
 }
 
-/** POST /auth/totp/verify. Sets totp_enabled_at when the 6-digit code matches. */
+/**
+ * POST /auth/totp/verify.
+ *
+ * Flow:
+ *   1. apiFetch sends {code}, the current 6-digit authenticator value.
+ *   2. Return {enabled: true} when the server sets totp_enabled_at.
+ *
+ * Debug:
+ *   401 TOTP_INVALID if setup was skipped or the code is outside the 30-second window.
+ */
 export async function totpVerify(code: string): Promise<TotpVerifyResult> {
   return apiFetch("/auth/totp/verify", {
     method: "POST",
@@ -250,7 +308,16 @@ export async function totpVerify(code: string): Promise<TotpVerifyResult> {
   });
 }
 
-/** POST /firm. Requires TOTP already enabled or the API returns TOTP_REQUIRED. */
+/**
+ * POST /firm.
+ *
+ * Flow:
+ *   1. apiFetch sends {firm_name, pan} with the bearer token.
+ *   2. Return id, firm_name, pan, and ca_code.
+ *
+ * Debug:
+ *   403 TOTP_REQUIRED until totpVerify succeeded. 409 is a duplicate PAN.
+ */
 export async function createFirm(
   firmName: string,
   pan: string,

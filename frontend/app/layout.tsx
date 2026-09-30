@@ -9,6 +9,15 @@ export const metadata: Metadata = {
   description: "GST returns automation for businesses and CA firms",
 };
 
+/**
+ * HTML shell for every page. Sets the Inter font variable and full-height body.
+ *
+ * Flow:
+ *   Render html + body around the matched route. No auth decision here.
+ *
+ * Debug:
+ *   A blank page with the right URL is usually the child route, not this layout.
+ */
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`}>

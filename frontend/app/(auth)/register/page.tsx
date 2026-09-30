@@ -1,8 +1,15 @@
 "use client";
 
 /**
- * Registration — role pick (business / CA firm), then OTP with REGISTER
- * purpose. New users are auto-created by the backend on REGISTER verify.
+ * Registration — role pick (business / CA firm), then OTP with REGISTER purpose.
+ *
+ * Flow:
+ *   1. pick() stores CLIENT or CA.
+ *   2. request() sends a REGISTER OTP and shows the dev code.
+ *   3. verify() creates the session. CA goes to /totp; a business goes to /app.
+ *
+ * Debug:
+ *   LOGIN on a new number fails. This page must use purpose REGISTER so the user row is created.
  */
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -28,7 +35,15 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  /** Remember CLIENT or CA and move to the identifier step. */
+  /**
+   * Remember CLIENT or CA and move to the identifier step.
+   *
+   * Flow:
+   *   setRole(r) then setStage("identifier"). No API call yet.
+   *
+   * Debug:
+   *   Skipping this leaves role null, so verify() treats the user as a business.
+   */
   function pick(r: Role) {
     setRole(r);
     setStage("identifier");
@@ -38,7 +53,11 @@ export default function RegisterPage() {
    * REGISTER OTP request. Purpose must be REGISTER or verify will not create the user.
    *
    * Flow:
-   *   requestOtp(REGISTER) → dev banner → stage otp.
+   *   1. requestOtp(identifier, REGISTER).
+   *   2. Store dev_otp for the banner and move to the code step.
+   *
+   * Debug:
+   *   The banner test id is reg-dev-otp. A 422 means the identifier is not a mobile or email.
    */
   async function request(e: React.FormEvent) {
     e.preventDefault();

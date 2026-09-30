@@ -2,7 +2,13 @@
 
 /**
  * Login — mobile/email OTP for both roles (API_SPECIFICATION.md §1).
- * Dev mode: the backend echoes dev_otp, shown inline for testing.
+ *
+ * Flow:
+ *   1. request() asks for a LOGIN code and shows dev_otp in dev mode.
+ *   2. verify() stores the access token, calls /auth/me, then opens /ca or /app.
+ *
+ * Debug:
+ *   Unknown identifier returns "register first". The 6-digit dev code is on this page, not in SMS.
  */
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -30,7 +36,12 @@ export default function LoginPage() {
    * LOGIN OTP request. Shows dev_otp when the API echoes it.
    *
    * Flow:
-   *   requestOtp(LOGIN) → store devOtp → stage otp. ApiError message on failure.
+   *   1. Prevent the form submit and clear the previous error.
+   *   2. requestOtp(identifier, LOGIN).
+   *   3. Save dev_otp and switch the form to the code step.
+   *
+   * Debug:
+   *   No banner means the API returned dev_otp null (dev mode off) or the request 429'd.
    */
   async function request(e: React.FormEvent) {
     e.preventDefault();

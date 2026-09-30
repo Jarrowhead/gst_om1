@@ -11,6 +11,9 @@ const ONBOARDING_PATHS = ["/totp"]; // TOTP setup must stay reachable during CA 
 /**
  * True for /login, /register, /totp (and nested paths).
  *
+ * Flow:
+ *   Match pathname exactly or as a prefix of PUBLIC_PATHS.
+ *
  * Debug:
  *   A new public page must be added to PUBLIC_PATHS or guests get sent to login.
  */
@@ -20,6 +23,9 @@ function isPublic(pathname: string): boolean {
 
 /**
  * True for paths that stay reachable after a role cookie exists (/totp).
+ *
+ * Flow:
+ *   Match pathname exactly or as a prefix of ONBOARDING_PATHS.
  *
  * Debug:
  *   Without this, a CA mid-setup is bounced from /totp to /.

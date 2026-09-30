@@ -15,6 +15,9 @@ const BACKEND = "http://127.0.0.1:8084";
 /**
  * Reserved 0-prefix mobile, unique per call via Date.now.
  *
+ * Flow:
+ *   Take the last 12 digits of the timestamp and prefix 0 so the result is 13 digits.
+ *
  * Debug:
  *   Two tests in the same millisecond can collide. OTP purpose must be REGISTER first.
  */
@@ -24,7 +27,16 @@ function uniqueMobile(): string {
   return `0${String(Date.now()).slice(-12)}`;
 }
 
-/** POST /auth/otp/request and return the envelope data (includes dev_otp in dev). */
+/**
+ * POST /auth/otp/request against the real backend and return the data object.
+ *
+ * Flow:
+ *   1. fetch http://127.0.0.1:8084/api/v1/auth/otp/request.
+ *   2. Assert success and return data, including dev_otp in dev mode.
+ *
+ * Debug:
+ *   Connection refused means the API on 8084 is not running.
+ */
 async function requestOtp(identifier: string, purpose: string) {
   const res = await fetch(`${BACKEND}/api/v1/auth/otp/request`, {
     method: "POST",
@@ -39,7 +51,15 @@ async function requestOtp(identifier: string, purpose: string) {
   return body.data!;
 }
 
-/** Read the 6-digit code from the register screen's dev OTP banner. */
+/**
+ * Read the 6-digit code from the register screen's dev OTP banner.
+ *
+ * Flow:
+ *   Wait for test id reg-dev-otp, then capture the digits after "dev code:".
+ *
+ * Debug:
+ *   Timeout means the banner never rendered, usually because dev_otp was null.
+ */
 async function waitForDevOtp(page: Page): Promise<string> {
   const banner = page.getByTestId("reg-dev-otp");
   await expect(banner).toBeVisible();
@@ -49,7 +69,15 @@ async function waitForDevOtp(page: Page): Promise<string> {
   return match![1];
 }
 
-/** Read the 6-digit code from the login screen's dev OTP banner (testid dev-otp). */
+/**
+ * Read the 6-digit code from the login screen's dev OTP banner.
+ *
+ * Flow:
+ *   Wait for test id dev-otp, then capture the digits after "dev code:".
+ *
+ * Debug:
+ *   Register uses reg-dev-otp. This helper only matches the login banner.
+ */
 async function waitForLoginDevOtp(page: Page): Promise<string> {
   const banner = page.getByTestId("dev-otp");
   await expect(banner).toBeVisible();

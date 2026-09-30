@@ -1,8 +1,15 @@
 "use client";
 
 /**
- * CA shell home — client roster placeholder with live /auth/me data.
- * Roster grid/search arrive in later tasks (FRONTEND_SPECIFICATION.md §3.3).
+ * CA shell home. The client roster arrives in a later task.
+ *
+ * Flow:
+ *   1. On load, silentRefresh. Failure clears the role cookie and opens /login.
+ *   2. fetchMe. firm null still renders this page if the user opened /ca directly.
+ *   3. signOut drops the memory token and role cookie, then opens /login.
+ *
+ * Debug:
+ *   A CA who has not created a firm yet is routed to /app by login, not by this page.
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -22,6 +29,14 @@ export default function CaHomePage() {
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Load the signed-in profile or leave for /login.
+   *
+   * Flow:
+   *   1. silentRefresh using the httpOnly cookie.
+   *   2. fetchMe. Ignore the result if the effect was cleaned up.
+   *   3. 401 or a failed refresh → clearSession and replace /login.
+   */
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -51,6 +66,9 @@ export default function CaHomePage() {
 
   /**
    * Drop the in-memory token and role cookie, then go to /login.
+   *
+   * Flow:
+   *   setAccessToken(null), clearSession(), router.push("/login").
    *
    * Debug:
    *   The httpOnly refresh cookie is not cleared here. A later silentRefresh can log the user back in.

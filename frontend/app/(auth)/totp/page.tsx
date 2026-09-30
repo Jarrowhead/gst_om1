@@ -1,9 +1,15 @@
 "use client";
 
 /**
- * TOTP onboarding — QR + verify (SECURITY §1: mandatory for CA firm
- * membership, client-side verify before enabling). After enablement the CA
- * creates their firm; PARTNER membership activates on success.
+ * TOTP onboarding for a CA, then firm creation.
+ *
+ * Flow:
+ *   1. begin() calls /auth/totp/setup and shows the secret plus QR.
+ *   2. verify() sends the 6-digit code and enables TOTP.
+ *   3. createTheFirm() calls POST /firm and opens /ca.
+ *
+ * Debug:
+ *   The 6-digit code is not stored in the app. It is computed from the secret on screen and changes every 30 seconds.
  */
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -26,6 +32,13 @@ export default function TotpPage() {
   const [busy, setBusy] = useState(false);
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  /**
+   * Draw the otpauth URI onto the canvas once the verify stage has a QR string.
+   *
+   * Flow:
+   *   If stage is verify and qrUri is set, QRCode.toCanvas writes the image.
+   *   A draw failure leaves the text secret visible underneath.
+   */
   useEffect(() => {
     if (stage === "verify" && qrCanvasRef.current !== null && qrUri !== "") {
       QRCode.toCanvas(qrCanvasRef.current, qrUri, { width: 220 }).catch(() => {
@@ -61,6 +74,10 @@ export default function TotpPage() {
 
   /**
    * POST /auth/totp/verify. Success moves to the firm form.
+   *
+   * Flow:
+   *   1. totpVerify(code) with the 6 digits from the authenticator.
+   *   2. On success set stage to firm. The secret stays enabled on the server.
    *
    * Debug:
    *   invalid TOTP code near a 30s boundary — generate a fresh code and retry.

@@ -1,8 +1,15 @@
 "use client";
 
 /**
- * Client shell home — per-GSTIN month cards placeholder with live /auth/me.
- * Month cards + deadlines arrive in later tasks (FRONTEND_SPECIFICATION.md §1).
+ * Client shell home. Month cards arrive in a later task.
+ *
+ * Flow:
+ *   1. On load, silentRefresh. Failure clears the role cookie and opens /login.
+ *   2. fetchMe fills the nav name.
+ *   3. signOut drops the memory token and role cookie, then opens /login.
+ *
+ * Debug:
+ *   "Checking session…" that never ends means silentRefresh or fetchMe did not settle.
  */
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -21,6 +28,14 @@ export default function ClientHomePage() {
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Load the signed-in profile or leave for /login.
+   *
+   * Flow:
+   *   1. silentRefresh using the httpOnly cookie.
+   *   2. fetchMe. Ignore the result if the effect was cleaned up.
+   *   3. 401 or a failed refresh → clearSession and replace /login.
+   */
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -50,6 +65,9 @@ export default function ClientHomePage() {
 
   /**
    * Drop the in-memory token and role cookie, then go to /login.
+   *
+   * Flow:
+   *   setAccessToken(null), clearSession(), router.push("/login").
    *
    * Debug:
    *   The httpOnly refresh cookie is not cleared here. A later silentRefresh can log the user back in.
