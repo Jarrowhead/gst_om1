@@ -26,15 +26,41 @@ _rng = random.SystemRandom()
 
 
 def _mobile() -> str:
-    """Unique per-call mobile — the suite shares the live dev DB (isolation)."""
+    """Unique per-call mobile — the suite shares the live dev DB (isolation).
+
+    Flow:
+        1. Return a 10-digit mobile that starts with 9.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture fails before the route is called.
+    """
     return "9" + "".join(_rng.choice("0123456789") for _ in range(9))
 
 
 def _email() -> str:
+    """Unique email so OTP rate-limit keys do not collide across tests.
+
+    Flow:
+        1. Return a unique email address.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture fails before the route is called.
+    """
     return f"{uuid.uuid4().hex[:12]}@test.example"
 
 
 async def test_otp_request_returns_dev_otp_in_dev_mode(client: AsyncClient) -> None:
+    """test otp request returns dev otp in dev mode.
+
+    Flow:
+        1. Call POST /api/v1/auth/otp/request and read the JSON envelope.
+        2. Expect HTTP 200.
+        3. Call resp.json.
+        4. Assert body['success'] is True.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     resp = await client.post(
         "/api/v1/auth/otp/request", json={"identifier": _mobile(), "purpose": "LOGIN"}
     )
@@ -47,6 +73,16 @@ async def test_otp_request_returns_dev_otp_in_dev_mode(client: AsyncClient) -> N
 
 
 async def test_otp_request_accepts_email_identifier(client: AsyncClient) -> None:
+    """test otp request accepts email identifier.
+
+    Flow:
+        1. Call POST /api/v1/auth/otp/request and read the JSON envelope.
+        2. Expect HTTP 200.
+        3. Assert resp.json()['data']['otp_sent'] is True.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     resp = await client.post(
         "/api/v1/auth/otp/request", json={"identifier": _email(), "purpose": "REGISTER"}
     )
@@ -55,6 +91,17 @@ async def test_otp_request_accepts_email_identifier(client: AsyncClient) -> None
 
 
 async def test_otp_verify_new_user_auto_created_on_register(client: AsyncClient) -> None:
+    """test otp verify new user auto created on register.
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Await _register_and_login and keep the result.
+        3. Assert data['access_token'].
+        4. Assert data['refresh_token'].
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     mobile = _mobile()
     data = await _register_and_login(client, mobile)
     assert data["access_token"]
@@ -69,6 +116,17 @@ async def test_otp_verify_new_user_auto_created_on_register(client: AsyncClient)
 
 
 async def test_otp_verify_login_purpose_rejects_unknown_user(client: AsyncClient) -> None:
+    """test otp verify login purpose rejects unknown user.
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Call POST /api/v1/auth/otp/request and read the JSON envelope.
+        3. Call POST /api/v1/auth/otp/verify and read the JSON envelope.
+        4. Expect HTTP 401.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     mobile = _mobile()  # never registered
     resp = await client.post(
         "/api/v1/auth/otp/request", json={"identifier": mobile, "purpose": "LOGIN"}
@@ -84,6 +142,17 @@ async def test_otp_verify_login_purpose_rejects_unknown_user(client: AsyncClient
 async def test_otp_verify_wrong_code_fails_and_counts_attempts(
     client: AsyncClient, fake_redis: fakeredis.aioredis.FakeRedis
 ) -> None:
+    """test otp verify wrong code fails and counts attempts.
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Call POST /api/v1/auth/otp/request and read the JSON envelope.
+        3. Call POST /api/v1/auth/otp/verify and read the JSON envelope.
+        4. Expect HTTP 401.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     mobile = _mobile()
     await client.post(
         "/api/v1/auth/otp/request", json={"identifier": mobile, "purpose": "REGISTER"}
@@ -103,6 +172,17 @@ async def test_otp_verify_wrong_code_fails_and_counts_attempts(
 async def test_otp_verify_exhausts_attempts_then_kills_otp(
     client: AsyncClient, fake_redis: fakeredis.aioredis.FakeRedis
 ) -> None:
+    """test otp verify exhausts attempts then kills otp.
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Call POST /api/v1/auth/otp/request and read the JSON envelope.
+        3. For each case: call POST /api/v1/auth/otp/verify and read the JSON envelope.
+        4. Assert last is not None and last.status_code == 429.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     mobile = _mobile()
     await client.post(
         "/api/v1/auth/otp/request", json={"identifier": mobile, "purpose": "LOGIN"}
@@ -122,7 +202,17 @@ async def test_otp_verify_exhausts_attempts_then_kills_otp(
 async def test_otp_unit_expiry_and_single_use(
     fake_redis: fakeredis.aioredis.FakeRedis,
 ) -> None:
-    """Unit-level: verify_otp raises OtpExpired when nothing stored; single-use."""
+    """Unit-level: verify_otp raises OtpExpired when nothing stored; single-use.
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Await otp_svc.request_otp.
+        3. Await fake_redis.get and keep the result.
+        4. Assert code_record is not None and isinstance(code_record, str).
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     mobile = _mobile()
     await otp_svc.request_otp(fake_redis, mobile, "LOGIN")
     code_record = await fake_redis.get(f"otp:{mobile}")
@@ -137,7 +227,17 @@ async def test_otp_unit_expiry_and_single_use(
 async def test_otp_rate_limit_5_per_hour_per_identifier(
     client: AsyncClient,
 ) -> None:
-    """THE done_when rate-limit test: 5 requests ok, 6th is 429; other ids unaffected."""
+    """THE done_when rate-limit test: 5 requests ok, 6th is 429; other ids unaffected.
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. For each case: call POST /api/v1/auth/otp/request and read the JSON envelope.
+        3. Assert statuses[:limit] == [(200, None)] * limit.
+        4. Assert statuses[limit] == (429, 'OTP_RATE_LIMITED').
+
+    Debug:
+        The sixth OTP request for one identifier in an hour is 429. The key is otp:rate:{identifier}.
+    """
     mobile = _mobile()
     other = _mobile()
     limit = get_settings().otp_request_limit_per_hour
@@ -159,7 +259,17 @@ async def test_otp_rate_limit_5_per_hour_per_identifier(
 async def test_otp_rate_limit_unit_direct(
     fake_redis: fakeredis.aioredis.FakeRedis,
 ) -> None:
-    """Service-level mirror: OtpRateLimited raised past the 5th request."""
+    """Service-level mirror: OtpRateLimited raised past the 5th request.
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. For each case: await otp_svc.request_otp.
+        3. Open the database session.
+        4. Await otp_svc.request_otp.
+
+    Debug:
+        The sixth OTP request for one identifier in an hour is 429. The key is otp:rate:{identifier}.
+    """
     mobile = _mobile()
     for _ in range(5):
         await otp_svc.request_otp(fake_redis, mobile, "LOGIN")
@@ -168,6 +278,16 @@ async def test_otp_rate_limit_unit_direct(
 
 
 async def test_otp_invalid_identifier_422(client: AsyncClient) -> None:
+    """test otp invalid identifier 422.
+
+    Flow:
+        1. Call POST /api/v1/auth/otp/request and read the JSON envelope.
+        2. Expect HTTP 422.
+        3. Check code against the expected value.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     resp = await client.post(
         "/api/v1/auth/otp/request", json={"identifier": "not-an-id", "purpose": "LOGIN"}
     )
@@ -177,7 +297,17 @@ async def test_otp_invalid_identifier_422(client: AsyncClient) -> None:
 
 
 async def test_otp_wrong_code_then_correct_code_still_works(client: AsyncClient) -> None:
-    """Correct code works after failed attempts (attempts < max)."""
+    """Correct code works after failed attempts (attempts < max).
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Call POST /api/v1/auth/otp/request and read the JSON envelope.
+        3. Call POST /api/v1/auth/otp/verify and read the JSON envelope.
+        4. Expect HTTP 200.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     mobile = _mobile()
     req = await client.post(
         "/api/v1/auth/otp/request", json={"identifier": mobile, "purpose": "REGISTER"}
@@ -194,7 +324,17 @@ async def test_otp_wrong_code_then_correct_code_still_works(client: AsyncClient)
 
 
 async def test_otp_verify_is_single_use_across_logins(client: AsyncClient) -> None:
-    """The same verified code cannot log in twice (OTP deleted on success)."""
+    """The same verified code cannot log in twice (OTP deleted on success).
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Call POST /api/v1/auth/otp/request and read the JSON envelope.
+        3. Call POST /api/v1/auth/otp/verify and read the JSON envelope.
+        4. Expect HTTP 200.
+
+    Debug:
+        Another tenant's id is 404, the same shape as a missing row.
+    """
     mobile = _mobile()
     req = await client.post(
         "/api/v1/auth/otp/request", json={"identifier": mobile, "purpose": "REGISTER"}

@@ -88,6 +88,16 @@ async function waitForLoginDevOtp(page: Page): Promise<string> {
 }
 
 test.describe("client onboarding", () => {
+  /**
+   * New business user: REGISTER OTP on the page, then the client shell.
+   *
+   * Flow:
+   *   1. Seed the identifier with POST /auth/otp/request purpose REGISTER.
+   *   2. Pick business, submit the dev code, and wait for /app.
+   *
+   * Debug:
+   *   A stay on /register means verify failed. The banner test id is reg-dev-otp.
+   */
   test("business role registers and lands on client shell", async ({ page }) => {
     const mobile = uniqueMobile();
     // The backend must know this identifier for REGISTER verify to auto-create the user.
@@ -106,6 +116,16 @@ test.describe("client onboarding", () => {
     await expect(page.locator('[data-testid="shell-role"]')).toHaveText("Business");
   });
 
+  /**
+   * Existing client logs in with a LOGIN OTP and lands on /app.
+   *
+   * Flow:
+   *   1. Create the user through the API (REGISTER request + verify).
+   *   2. On /login, submit the dev code and wait for /app.
+   *
+   * Debug:
+   *   "Register first" means the API verify step did not create the user.
+   */
   test("login for existing client routes to client shell", async ({ page }) => {
     const mobile = uniqueMobile();
     await requestOtp(mobile, "REGISTER");
@@ -131,6 +151,17 @@ test.describe("client onboarding", () => {
 });
 
 test.describe("CA onboarding", () => {
+  /**
+   * CA path: register, enable TOTP from the on-screen secret, create a firm, land on /ca.
+   *
+   * Flow:
+   *   1. Register as CA and wait for /totp.
+   *   2. Start setup, compute totpCode(secret), and confirm the enabled banner.
+   *   3. Submit firm name + PAN AAAFE9999F and wait for /ca.
+   *
+   * Debug:
+   *   A wrong 6-digit code is the previous window. Firm create before the banner stays on /totp.
+   */
   test("CA role registers, enrolls TOTP, creates firm, lands on CA shell", async ({
     page,
   }) => {
@@ -166,6 +197,16 @@ test.describe("CA onboarding", () => {
     await expect(page.locator('[data-testid="shell-role"]')).toHaveText("CA firm");
   });
 
+  /**
+   * A CA with no firm yet logs in and is sent to /app, because role follows the firm.
+   *
+   * Flow:
+   *   1. Create the user through the API. Do not create a firm.
+   *   2. Log in on /login and wait for /app.
+   *
+   * Debug:
+   *   /ca here means a firm row already exists for this mobile.
+   */
   test("CA login routes to CA shell", async ({ page }) => {
     const mobile = uniqueMobile();
     await requestOtp(mobile, "REGISTER");
@@ -191,6 +232,16 @@ test.describe("CA onboarding", () => {
 });
 
 test.describe("route guard", () => {
+  /**
+   * /app without a session opens /login.
+   *
+   * Flow:
+   *   1. Clear gst_role in the page.
+   *   2. Open /app and expect /login.
+   *
+   * Debug:
+   *   A stay on /app means middleware treated the request as signed in.
+   */
   test("unauthenticated visitor is redirected to login", async ({ page }) => {
     await page.addInitScript(() => {
       document.cookie = "gst_role=; path=/; max-age=0";
@@ -199,6 +250,16 @@ test.describe("route guard", () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
+  /**
+   * A gst_role=CA cookie without a refresh session cannot open /ca.
+   *
+   * Flow:
+   *   1. Set the cookie for 127.0.0.1.
+   *   2. Open /ca and expect /login.
+   *
+   * Debug:
+   *   The cookie only picks a route. silentRefresh fails and the shell sends the browser to /login.
+   */
   test("forged gst_role cookie without session is rejected", async ({ page }) => {
     await page.context().addCookies([
       { name: "gst_role", value: "CA", domain: "127.0.0.1", path: "/" },
@@ -207,6 +268,16 @@ test.describe("route guard", () => {
     await expect(page).toHaveURL(/\/login/, { timeout: 10_000 });
   });
 
+  /**
+   * A signed-in business user who opens /login is sent back to /app.
+   *
+   * Flow:
+   *   1. Register through the UI and wait for /app.
+   *   2. Open /login and expect /app again.
+   *
+   * Debug:
+   *   A stay on /login means the access token was dropped before the redirect.
+   */
   test("authenticated user hitting /login is sent to their shell", async ({
     page,
   }) => {

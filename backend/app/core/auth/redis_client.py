@@ -37,6 +37,10 @@ async def _close_client() -> None:
 
     Debug:
         Pool may still be open until _close_pool runs via close_redis.
+
+    Flow:
+        1. If a client exists, await aclose and ignore errors.
+        2. Set the module client to None so the next get_redis builds a new one.
     """
     global _client
     if _client is not None:
@@ -52,6 +56,10 @@ async def _close_pool() -> None:
 
     Debug:
         Call after _close_client so in-flight commands are not left on a dead pool.
+
+    Flow:
+        1. If a pool exists, disconnect it and ignore errors.
+        2. Set the module pool to None.
     """
     global _pool
     if _pool is not None:

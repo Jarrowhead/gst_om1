@@ -36,7 +36,15 @@ class TokenPair(TypedDict):
 
 
 def _now() -> dt.datetime:
-    """UTC now used for JWT iat/exp so tests can reason about relative expiry."""
+    """UTC now used for JWT iat/exp so tests can reason about relative expiry.
+
+    Flow:
+        1. Return timezone-aware UTC now.
+        2. create_access_token and create_stepup_token use it for iat and exp.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture GSTIN fails before the route is called.
+    """
     return dt.datetime.now(tz=dt.UTC)
 
 
@@ -139,17 +147,41 @@ def verify_stepup_token(token: str) -> uuid.UUID:
 
 
 def _family_key(family_id: str) -> str:
-    """Redis key rfam:{id} → user_id for one refresh family."""
+    """Redis key rfam:{id} → user_id for one refresh family.
+
+    Flow:
+        1. Return rfam:{family_id}.
+        2. The value stored there is the user id for that refresh family.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture GSTIN fails before the route is called.
+    """
     return f"rfam:{family_id}"
 
 
 def _token_key(token: str) -> str:
-    """Redis key rtk:{token} → family_id for a live refresh token."""
+    """Redis key rtk:{token} → family_id for a live refresh token.
+
+    Flow:
+        1. Return rtk:{token}.
+        2. The value is the family id while the refresh token is still live.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture GSTIN fails before the route is called.
+    """
     return f"rtk:{token}"
 
 
 def _tombstone_key(token: str) -> str:
-    """Redis key rtold:{token} → family_id after a token was rotated or logged out."""
+    """Redis key rtold:{token} → family_id after a token was rotated or logged out.
+
+    Flow:
+        1. Return rtold:{token}.
+        2. A hit here means the token was already rotated or logged out.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture GSTIN fails before the route is called.
+    """
     return f"rtold:{token}"
 
 

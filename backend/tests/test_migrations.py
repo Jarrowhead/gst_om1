@@ -130,6 +130,12 @@ async def _tables_and_enums(db_name: str) -> tuple[set[str], set[str]]:
 
     Debug:
         A missing table after upgrade means the migration chain stopped early.
+
+    Flow:
+        1. Call create_async_engine.
+        2. Open the database session.
+        3. Return (tables, enums).
+
     """
     engine = create_async_engine(f"{BASE_URL}/{db_name}")
     try:
@@ -183,7 +189,17 @@ def _alembic(db_name: str, op_name: str, target: str) -> None:
 
 @pytest.mark.asyncio()
 async def test_upgrade_downgrade_upgrade_cycle_clean(scratch_db: str) -> None:
-    """up -> down -> up: the exact acceptance criterion for task 0.3."""
+    """up -> down -> up: the exact acceptance criterion for task 0.3.
+
+    Flow:
+        1. Call _alembic.
+        2. Await _tables_and_enums and keep the result.
+        3. Check tables_2 against the expected value.
+        4. Check enums_2 against the expected value.
+
+    Debug:
+        Money columns are integer paise. The scratch database is gst_filing_db on port 5436.
+    """
     _alembic(scratch_db, "upgrade", "head")
     tables_1, _ = await _tables_and_enums(scratch_db)
 
@@ -199,7 +215,17 @@ async def test_upgrade_downgrade_upgrade_cycle_clean(scratch_db: str) -> None:
 
 @pytest.mark.asyncio()
 async def test_all_v2_tables_present_in_correct_schemas(scratch_db: str) -> None:
-    """All 25 §3 tables exist in core/gst/extraction after upgrade head."""
+    """All 25 §3 tables exist in core/gst/extraction after upgrade head.
+
+    Flow:
+        1. Call _alembic.
+        2. Await _tables_and_enums and keep the result.
+        3. For each case: assert not missing.
+        4. Assert len(tables) == 25.
+
+    Debug:
+        Money columns are integer paise. The scratch database is gst_filing_db on port 5436.
+    """
     _alembic(scratch_db, "upgrade", "head")
     tables, _ = await _tables_and_enums(scratch_db)
 
@@ -214,7 +240,17 @@ async def test_all_v2_tables_present_in_correct_schemas(scratch_db: str) -> None
 
 @pytest.mark.asyncio()
 async def test_money_columns_are_integer_paise(scratch_db: str) -> None:
-    """Hard rule 2: every *_minor money column is integer — no float/numeric."""
+    """Hard rule 2: every *_minor money column is integer — no float/numeric.
+
+    Flow:
+        1. Call _alembic.
+        2. Call create_async_engine.
+        3. Open the database session.
+        4. Call all.
+
+    Debug:
+        Money columns are integer paise. The scratch database is gst_filing_db on port 5436.
+    """
     _alembic(scratch_db, "upgrade", "head")
     engine = create_async_engine(f"{BASE_URL}/{scratch_db}")
     try:

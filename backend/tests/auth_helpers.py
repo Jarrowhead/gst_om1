@@ -54,6 +54,11 @@ async def api_sessionmaker() -> AsyncGenerator[SessionMaker, None]:
 
     Debug:
         Connection errors → bootstrap_stack.py and PG :5436.
+
+    Flow:
+        1. Call create_async_engine.
+        2. Await engine.dispose.
+
     """
     engine = create_async_engine(TEST_DB_URL)
     yield async_sessionmaker(engine, expire_on_commit=False)
@@ -80,6 +85,14 @@ async def client(
     app = create_app()
 
     async def _override_session() -> AsyncGenerator[Any, None]:
+        """Yield one session from the test session factory.
+
+        Flow:
+            1. Open the database session.
+
+        Debug:
+            This helper feeds the tests below. A bad fixture fails before the route is called.
+        """
         async with api_sessionmaker() as session:
             yield session
 
@@ -118,6 +131,10 @@ def uuid4hex() -> str:
 
     Debug:
         Not a full UUID. Collisions are unlikely but possible if sliced too short in a loop.
+
+    Flow:
+        1. Return the first 9 hex characters of a new UUID.
+
     """
     import uuid
 
@@ -156,6 +173,10 @@ def redis_view(fake_redis: fakeredis.aioredis.FakeRedis) -> Redis:
 
     Debug:
         No runtime conversion. If a method is missing, the fakeredis version is too old.
+
+    Flow:
+        1. Return the fakeredis client unchanged.
+
     """
     return fake_redis
 

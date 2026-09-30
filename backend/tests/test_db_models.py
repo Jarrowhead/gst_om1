@@ -85,6 +85,13 @@ def _table_counts_by_schema() -> dict[str, int]:
 
     Debug:
         Zero counts mean Alembic has not been applied to gst_filing_db.
+
+    Flow:
+        1. Call replace.
+        2. Call create_engine.
+        3. Open the database session.
+        4. Call fetchall.
+
     """
     import os
 
@@ -111,6 +118,13 @@ def _tables_in_schema(schema: str) -> set[str]:
 
     Debug:
         Compare against EXPECTED sets in this file when a model is added.
+
+    Flow:
+        1. Call replace.
+        2. Call create_engine.
+        3. Open the database session.
+        4. Call fetchall.
+
     """
     import os
 
@@ -132,7 +146,16 @@ def _tables_in_schema(schema: str) -> set[str]:
 
 
 def test_model_metadata_registers_all_25_tables() -> None:
-    """The ORM registers exactly the doc's 25 tables across 3 schemas."""
+    """The ORM registers exactly the doc's 25 tables across 3 schemas.
+
+    Flow:
+        1. Call app_db_base.all_models.
+        2. For each case: assert table.schema in EXPECTED_TABLES.
+        3. Check by_schema against the expected value.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
 
     app_db_base.all_models()
     by_schema: dict[str, set[str]] = {}
@@ -143,7 +166,15 @@ def test_model_metadata_registers_all_25_tables() -> None:
 
 
 def test_money_columns_are_integer_paise() -> None:
-    """No float money anywhere: *_minor columns must be Integer/BigInteger-typed."""
+    """No float money anywhere: *_minor columns must be Integer/BigInteger-typed.
+
+    Flow:
+        1. Call app_db_base.all_models.
+        2. For each case: for each case: assert isinstance(column.type, (Integer, BigInteger)).
+
+    Debug:
+        Money columns are integer paise. The scratch database is gst_filing_db on port 5436.
+    """
     from decimal import Decimal
 
     from sqlalchemy import BigInteger, Integer, Numeric
@@ -170,7 +201,15 @@ def test_money_columns_are_integer_paise() -> None:
 
 @requires_pg
 def test_migration_up_down_up_cycle_clean() -> None:
-    """The done_when: upgrade -> downgrade -> upgrade, exit 0 each step."""
+    """The done_when: upgrade -> downgrade -> upgrade, exit 0 each step.
+
+    Flow:
+        1. Assert PG_AVAILABLE.
+        2. Call _alembic.
+
+    Debug:
+        Money columns are integer paise. The scratch database is gst_filing_db on port 5436.
+    """
     assert PG_AVAILABLE
     _alembic("downgrade", "base")
     _alembic("upgrade", "head")
@@ -180,7 +219,15 @@ def test_migration_up_down_up_cycle_clean() -> None:
 
 @requires_pg
 def test_all_v2_tables_present_after_upgrade() -> None:
-    """Post-upgrade, all 25 tables exist in their doc-specified schemas."""
+    """Post-upgrade, all 25 tables exist in their doc-specified schemas.
+
+    Flow:
+        1. Assert PG_AVAILABLE.
+        2. For each case: call _tables_in_schema.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     assert PG_AVAILABLE
     for schema, expected in EXPECTED_TABLES.items():
         present = _tables_in_schema(schema)
@@ -193,7 +240,17 @@ def test_all_v2_tables_present_after_upgrade() -> None:
 
 @requires_pg
 def test_filing_period_composite_key_and_invoice_lock_columns() -> None:
-    """Spot-checks locking/GST semantics that later tasks build on."""
+    """Spot-checks locking/GST semantics that later tasks build on.
+
+    Flow:
+        1. Call replace.
+        2. Call create_engine.
+        3. Open the database session.
+        4. Call fetchall.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     import os
 
     from sqlalchemy import create_engine, text

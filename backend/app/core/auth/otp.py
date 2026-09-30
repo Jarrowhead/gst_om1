@@ -56,12 +56,28 @@ def validate_identifier(identifier: str) -> str:
 
 
 def _otp_key(identifier: str) -> str:
-    """Redis key holding the live OTP JSON for one identifier (TTL ~5 min)."""
+    """Redis key holding the live OTP JSON for one identifier (TTL ~5 min).
+
+    Flow:
+        1. Prefix the identifier with otp:.
+        2. request_otp and verify_otp read and write this key.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture GSTIN fails before the route is called.
+    """
     return f"otp:{identifier}"
 
 
 def _rate_key(identifier: str) -> str:
-    """Redis key counting OTP requests per identifier (TTL 1 hour)."""
+    """Redis key counting OTP requests per identifier (TTL 1 hour).
+
+    Flow:
+        1. Prefix the identifier with otp_rl:.
+        2. request_otp INCRs this key and sets a 1-hour TTL on the first hit.
+
+    Debug:
+        The 6th request must be 429 OTP_RATE_LIMITED. A different identifier must still succeed.
+    """
     return f"otp_rl:{identifier}"
 
 

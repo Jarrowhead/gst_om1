@@ -23,6 +23,16 @@ import { clearSession, setRoleCookie } from "@/lib/auth/session";
 
 type Stage = "identifier" | "otp";
 
+/**
+ * OTP login page. Both roles use the same form; the shell is chosen after /auth/me.
+ *
+ * Flow:
+ *   1. request() asks for a LOGIN code and shows dev_otp when the API echoes it.
+ *   2. verify() stores the access token, sets gst_role, then opens /ca or /app.
+ *
+ * Debug:
+ *   Unknown identifier says "register first". The 6-digit dev code is on this page, not in SMS.
+ */
 export default function LoginPage() {
   const router = useRouter();
   const [stage, setStage] = useState<Stage>("identifier");

@@ -34,6 +34,14 @@ SessionMaker = async_sessionmaker[Any]
 
 
 def _mobile() -> str:
+    """Unique mobile so registration tests do not share a user row.
+
+    Flow:
+        1. Return a 10-digit mobile that starts with 9.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture fails before the route is called.
+    """
     return "9" + "".join(random.SystemRandom().choice("0123456789") for _ in range(9))
 
 
@@ -41,13 +49,30 @@ def _mobile() -> str:
 
 
 async def test_gstin_checksum_valid_real_vector() -> None:
-    """Known-good real GSTINs from published GSTN-spec worked examples."""
+    """Known-good real GSTINs from published GSTN-spec worked examples.
+
+    Flow:
+        1. Assert gstin_checksum_valid('27AAPFU0939F1ZV').
+        2. Assert gstin_checksum_valid('27AAACR5055K1Z7').
+        3. Assert gstin_checksum_valid('00AAACR5055K1ZN').
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     assert gstin_checksum_valid("27AAPFU0939F1ZV")
     assert gstin_checksum_valid("27AAACR5055K1Z7")
     assert gstin_checksum_valid("00AAACR5055K1ZN")
 
 
 async def test_gstin_rejects_bad_checksum() -> None:
+    """test gstin rejects bad checksum.
+
+    Flow:
+        1. For each case: assert not gstin_checksum_valid(base + tail).
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     base = "33AAACC1206D1Z"
     for tail in "ABCDEFGHIJKLMOPQRSTUVWXYZ0123456789":
         if tail != "N":
@@ -55,6 +80,14 @@ async def test_gstin_rejects_bad_checksum() -> None:
 
 
 async def test_gstin_pan_embedding() -> None:
+    """test gstin pan embedding.
+
+    Flow:
+        1. For each case: call make_pan.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     for _ in range(25):
         pan = make_pan()
         g = make_gstin(pan=pan)
@@ -63,6 +96,16 @@ async def test_gstin_pan_embedding() -> None:
 
 
 async def test_validate_gstin_enforces_pan_match() -> None:
+    """test validate gstin enforces pan match.
+
+    Flow:
+        1. Call make_gstin.
+        2. Open the database session.
+        3. Call gstin.validate_gstin.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     pan_a, pan_b = make_pan(), make_pan()
     g_a = make_gstin(pan=pan_a)
     with pytest.raises(ValueError, match="PAN does not match GSTIN"):
@@ -70,18 +113,45 @@ async def test_validate_gstin_enforces_pan_match() -> None:
 
 
 async def test_validate_gstin_accepts_matching_pan() -> None:
+    """test validate gstin accepts matching pan.
+
+    Flow:
+        1. Call make_pan.
+        2. Call make_gstin.
+        3. Assert gstin.validate_gstin(g, pan=pan) == g.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     pan = make_pan()
     g = make_gstin(pan=pan)
     assert gstin.validate_gstin(g, pan=pan) == g
 
 
 async def test_pan_validation_rejects_bad_format() -> None:
+    """test pan validation rejects bad format.
+
+    Flow:
+        1. For each case: open the database session.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     for bad in ["12345", "ABCD1234", "", "ABCD12345F", "ABCDEf1234"]:
         with pytest.raises(ValueError, match="invalid PAN format"):
             gstin.validate_pan(bad)
 
 
 async def test_pan_validation_uppercases() -> None:
+    """test pan validation uppercases.
+
+    Flow:
+        1. Call make_pan.
+        2. Assert gstin.validate_pan(pan.lower()) == pan.upper().
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     pan = make_pan()
     assert gstin.validate_pan(pan.lower()) == pan.upper()
 
@@ -93,6 +163,17 @@ async def _seed_owner_business(
     sessionmaker: SessionMaker,
     client: AsyncClient,
 ) -> tuple[Any, Any, Any]:
+    """Insert an owner user and one business they belong to.
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Await register_and_login and keep the result.
+        3. Call verify_access_token.
+        4. Call make_pan.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture fails before the route is called.
+    """
     mobile = _mobile()
     tokens = await register_and_login(client, mobile)
     from app.core.auth.tokens import verify_access_token
@@ -114,6 +195,17 @@ async def test_create_business_then_list(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test create business then list.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Open the database session.
+        3. Await list_my_businesses and keep the result.
+        4. Assert str(business.id) in ids.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     tokens, business, _user_id = await _seed_owner_business(
         client=client, sessionmaker=api_sessionmaker
     )
@@ -127,6 +219,17 @@ async def test_create_registration_with_checksum_and_pan_match(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test create registration with checksum and pan match.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Call make_gstin.
+        3. Open the database session.
+        4. Await create_registration and keep the result.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     tokens, business, _ = await _seed_owner_business(
         client=client, sessionmaker=api_sessionmaker
     )
@@ -151,6 +254,17 @@ async def test_irn_threshold_false_below_5cr(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test irn threshold false below 5cr.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Call make_gstin.
+        3. Open the database session.
+        4. Await create_registration and keep the result.
+
+    Debug:
+        IRN flips true only above 5 crore, which is 5_000_000_000 paise.
+    """
     tokens, business, _ = await _seed_owner_business(
         client=client, sessionmaker=api_sessionmaker
     )
@@ -170,6 +284,17 @@ async def test_irn_threshold_false_at_exactly_5cr(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test irn threshold false at exactly 5cr.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Call make_gstin.
+        3. Open the database session.
+        4. Await create_registration and keep the result.
+
+    Debug:
+        IRN flips true only above 5 crore, which is 5_000_000_000 paise.
+    """
     tokens, business, _ = await _seed_owner_business(
         client=client, sessionmaker=api_sessionmaker
     )
@@ -189,6 +314,17 @@ async def test_irn_threshold_true_above_5cr(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test irn threshold true above 5cr.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Call make_gstin.
+        3. Open the database session.
+        4. Await create_registration and keep the result.
+
+    Debug:
+        IRN flips true only above 5 crore, which is 5_000_000_000 paise.
+    """
     tokens, business, _ = await _seed_owner_business(
         client=client, sessionmaker=api_sessionmaker
     )
@@ -208,6 +344,17 @@ async def test_update_registration_irn_threshold_boundary(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test update registration irn threshold boundary.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Call make_gstin.
+        3. Open the database session.
+        4. Await create_registration and keep the result.
+
+    Debug:
+        IRN flips true only above 5 crore, which is 5_000_000_000 paise.
+    """
     tokens, business, _ = await _seed_owner_business(
         client=client, sessionmaker=api_sessionmaker
     )
@@ -241,6 +388,17 @@ async def test_duplicate_gstin_raises_409(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test duplicate gstin raises 409.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Call make_gstin.
+        3. Open the database session.
+        4. Await create_registration.
+
+    Debug:
+        A duplicate GSTIN or PAN is 409. The second request must not insert a row.
+    """
     tokens, business, _ = await _seed_owner_business(
         client=client, sessionmaker=api_sessionmaker
     )
@@ -267,6 +425,17 @@ async def test_update_business_patches_fields(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test update business patches fields.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Open the database session.
+        3. Await update_business and keep the result.
+        4. Assert updated.legal_name == 'New Legal Name'.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     _, business, _ = await _seed_owner_business(client=client, sessionmaker=api_sessionmaker)
     async with api_sessionmaker() as session:
         updated = await update_business(
@@ -283,6 +452,17 @@ async def test_update_registration_patches_aato_and_scheme(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test update registration patches aato and scheme.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Call make_gstin.
+        3. Open the database session.
+        4. Await create_registration and keep the result.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     _, business, _ = await _seed_owner_business(client=client, sessionmaker=api_sessionmaker)
     gstin_str = make_gstin(pan=business.pan)
     async with api_sessionmaker() as session:
@@ -307,6 +487,17 @@ async def test_get_business_detail_includes_registrations(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test get business detail includes registrations.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Call make_gstin.
+        3. Open the database session.
+        4. Await create_registration and keep the result.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     _, business, _ = await _seed_owner_business(client=client, sessionmaker=api_sessionmaker)
     gstin_str = make_gstin(pan=business.pan)
     async with api_sessionmaker() as session:
@@ -326,11 +517,28 @@ async def test_get_business_detail_includes_registrations(
 
 
 def _app(sessionmaker: SessionMaker) -> Any:
+    """ASGI app with the test session factory overriding get_session.
+
+    Flow:
+        1. Call create_app.
+        2. Return app.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture fails before the route is called.
+    """
     from app.db.session import get_session
 
     app = create_app()
 
     async def _override_session() -> AsyncGenerator[Any, None]:
+        """Yield one session from the test session factory.
+
+        Flow:
+            1. Open the database session.
+
+        Debug:
+            This helper feeds the tests below. A bad fixture fails before the route is called.
+        """
         async with sessionmaker() as session:
             yield session
 
@@ -342,6 +550,17 @@ async def test_api_create_business_returns_envelope(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test api create business returns envelope.
+
+    Flow:
+        1. Await register_and_login and keep the result.
+        2. Call _app.
+        3. Open the database session.
+        4. Call POST /api/v1/businesses and read the JSON envelope.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     tokens = await register_and_login(client, _mobile())
     app = _app(api_sessionmaker)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as ac:
@@ -361,6 +580,17 @@ async def test_api_create_registration_goes_through_guard(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test api create registration goes through guard.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Call make_gstin.
+        3. Call _app.
+        4. Open the database session.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     tokens, business, _ = await _seed_owner_business(
         client=client, sessionmaker=api_sessionmaker
     )
@@ -384,6 +614,17 @@ async def test_api_get_registration_cross_tenant_404(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test api get registration cross tenant 404.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Call make_gstin.
+        3. Open the database session.
+        4. Await create_registration and keep the result.
+
+    Debug:
+        Another tenant's id is 404, the same shape as a missing row.
+    """
     tokens_a, business_a, _ = await _seed_owner_business(
         client=client, sessionmaker=api_sessionmaker
     )
@@ -412,6 +653,17 @@ async def test_api_create_registration_rejects_invalid_gstin(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test api create registration rejects invalid gstin.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Call make_gstin.
+        3. Assert len(bad_gstin) == 15.
+        4. Call _app.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     tokens, business, _ = await _seed_owner_business(
         client=client, sessionmaker=api_sessionmaker
     )
@@ -432,6 +684,17 @@ async def test_api_create_registration_rejects_pan_mismatch(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test api create registration rejects pan mismatch.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Call make_pan.
+        3. Call make_gstin.
+        4. Assert other_gstin[2:12] != business.pan.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     tokens, business, _ = await _seed_owner_business(
         client=client, sessionmaker=api_sessionmaker
     )
@@ -454,6 +717,16 @@ async def test_api_create_registration_rejects_pan_mismatch(
 async def test_api_business_routes_401_without_token(
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test api business routes 401 without token.
+
+    Flow:
+        1. Call _app.
+        2. Open the database session.
+        3. For each case: expect HTTP 401.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     app = _app(api_sessionmaker)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as ac:
         for method, url in [
@@ -469,6 +742,17 @@ async def test_duplicate_pan_returns_409(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test duplicate pan returns 409.
+
+    Flow:
+        1. Await register_and_login and keep the result.
+        2. Call make_pan.
+        3. Call _app.
+        4. Open the database session.
+
+    Debug:
+        A duplicate GSTIN or PAN is 409. The second request must not insert a row.
+    """
     tokens = await register_and_login(client, _mobile())
     pan = make_pan()
     app = _app(api_sessionmaker)
@@ -491,7 +775,17 @@ async def test_concurrent_duplicate_pan_returns_409(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
-    """Two sessions racing for the same PAN must produce exactly one 409."""
+    """Two sessions racing for the same PAN must produce exactly one 409.
+
+    Flow:
+        1. Await register_and_login and keep the result.
+        2. Call make_pan.
+        3. Call _app.
+        4. Await asyncio.gather and keep the result.
+
+    Debug:
+        A duplicate GSTIN or PAN is 409. The second request must not insert a row.
+    """
     import asyncio
 
     tokens_a = await register_and_login(client, _mobile())
@@ -500,6 +794,16 @@ async def test_concurrent_duplicate_pan_returns_409(
     app = _app(api_sessionmaker)
 
     async def _create(tok: str) -> int:
+        """POST /businesses and return the status code.
+
+        Flow:
+            1. Open the database session.
+            2. Call POST /api/v1/businesses and read the JSON envelope.
+            3. Return resp.status_code.
+
+        Debug:
+            This helper feeds the tests below. A bad fixture fails before the route is called.
+        """
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as ac:
             resp = await ac.post(
                 "/api/v1/businesses",
@@ -519,6 +823,17 @@ async def test_business_list_only_returns_memberships(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test business list only returns memberships.
+
+    Flow:
+        1. Await _seed_owner_business and keep the result.
+        2. Open the database session.
+        3. Await list_my_businesses and keep the result.
+        4. Assert str(business_a.id) in a_ids.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     tokens_a, business_a, uid_a = await _seed_owner_business(
         client=client, sessionmaker=api_sessionmaker
     )

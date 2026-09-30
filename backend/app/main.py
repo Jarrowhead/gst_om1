@@ -62,6 +62,10 @@ def create_app() -> FastAPI:
 
         Debug:
             200 here with failing logins usually means Redis :6380 or PG :5436 is down.
+
+        Flow:
+            1. Return {success: true, data: {status: ok}}.
+            2. Do not open Postgres, Redis, or MinIO.
         """
         return {"success": True, "data": {"status": "ok"}}
 

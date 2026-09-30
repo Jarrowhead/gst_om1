@@ -23,6 +23,17 @@ interface Me {
   businesses: string[];
 }
 
+/**
+ * Client home. Confirms the refresh cookie still works, then shows the signed-in name.
+ *
+ * Flow:
+ *   1. On load, silentRefresh. Failure clears the role cookie and opens /login.
+ *   2. fetchMe fills the nav name.
+ *   3. signOut drops the memory token and role cookie, then opens /login.
+ *
+ * Debug:
+ *   "Checking session…" that never ends means silentRefresh or fetchMe did not settle.
+ */
 export default function ClientHomePage() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);

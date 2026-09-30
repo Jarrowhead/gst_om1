@@ -28,6 +28,14 @@ _rng = random.SystemRandom()
 
 
 def _mobile() -> str:
+    """Unique mobile so this test does not share an OTP key with another test.
+
+    Flow:
+        1. Return a 10-digit mobile that starts with 9.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture fails before the route is called.
+    """
     return "9" + "".join(_rng.choice("0123456789") for _ in range(9))
 
 
@@ -39,6 +47,15 @@ async def _register_totp_firm(
     """Full CA onboarding: register -> totp setup+verify -> create firm.
 
     Returns (token_data, firm_out, mobile, user_id).
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Await _register_and_login and keep the result.
+        3. Call POST /api/v1/auth/totp/setup and read the JSON envelope.
+        4. Expect HTTP 200.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
     """
     mobile = _mobile()
     data = await _register_and_login(client, mobile)
@@ -71,7 +88,17 @@ async def _register_totp_firm(
 async def test_me_after_firm_onboarding(
     client: AsyncClient, api_sessionmaker: SessionMaker
 ) -> None:
-    """4(a): REGISTER -> TOTP -> POST /firm -> GET /auth/me = 200, firm present."""
+    """4(a): REGISTER -> TOTP -> POST /firm -> GET /auth/me = 200, firm present.
+
+    Flow:
+        1. Await _register_totp_firm and keep the result.
+        2. Call GET /api/v1/auth/me and read the JSON envelope.
+        3. Expect HTTP 200.
+        4. Call me.json.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     data, firm, mobile, user_id = await _register_totp_firm(
         client, api_sessionmaker
     )
@@ -88,7 +115,17 @@ async def test_me_after_firm_onboarding(
 async def test_me_second_firm_returns_primary_earliest_firm(
     client: AsyncClient, api_sessionmaker: SessionMaker
 ) -> None:
-    """4(b): second POST /firm + /me still 200 with the FIRST firm id."""
+    """4(b): second POST /firm + /me still 200 with the FIRST firm id.
+
+    Flow:
+        1. Await _register_totp_firm and keep the result.
+        2. Call POST /api/v1/firm and read the JSON envelope.
+        3. Expect HTTP 200.
+        4. Call GET /api/v1/auth/me and read the JSON envelope.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     data, firm1, _mobile1, _uid = await _register_totp_firm(
         client, api_sessionmaker
     )
@@ -111,7 +148,17 @@ async def test_me_second_firm_returns_primary_earliest_firm(
 async def test_require_stepup_contract(
     client: AsyncClient, api_sessionmaker: SessionMaker
 ) -> None:
-    """4(c): no header -> 403 STEP_UP_REQUIRED; own stepup -> ok; other -> 401."""
+    """4(c): no header -> 403 STEP_UP_REQUIRED; own stepup -> ok; other -> 401.
+
+    Flow:
+        1. Await _register_totp_firm and keep the result.
+        2. Call Request.
+        3. Open the database session.
+        4. Await require_stepup.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     data, _firm, _mobile, user_id = await _register_totp_firm(
         client, api_sessionmaker
     )
@@ -148,7 +195,17 @@ async def test_require_stepup_contract(
 async def test_firm_create_shape_and_totp_guard(
     client: AsyncClient, api_sessionmaker: SessionMaker
 ) -> None:
-    """4(d): POST /firm 200 shape and 403 TOTP_REQUIRED for a TOTP-less user."""
+    """4(d): POST /firm 200 shape and 403 TOTP_REQUIRED for a TOTP-less user.
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Await _register_and_login and keep the result.
+        3. Call POST /api/v1/firm and read the JSON envelope.
+        4. Expect HTTP 403.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     mobile = _mobile()
     data = await _register_and_login(client, mobile)
     headers = {"Authorization": f"Bearer {data['access_token']}"}
@@ -185,7 +242,17 @@ async def test_firm_create_shape_and_totp_guard(
 async def test_stepup_falls_back_mobile_when_email_otp_requested(
     client: AsyncClient, api_sessionmaker: SessionMaker, fake_redis: fakeredis.aioredis.FakeRedis
 ) -> None:
-    """4(e): user with email AND mobile, OTP requested for MOBILE -> stepup 200."""
+    """4(e): user with email AND mobile, OTP requested for MOBILE -> stepup 200.
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Await _register_and_login and keep the result.
+        3. Call token_svc.verify_access_token.
+        4. Open the database session.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     mobile = _mobile()
     data = await _register_and_login(client, mobile)
     access = data["access_token"]
@@ -220,7 +287,17 @@ async def test_stepup_mobile_with_both_live(
     client: AsyncClient, api_sessionmaker: SessionMaker, fake_redis: fakeredis.aioredis.FakeRedis
 ) -> None:
     """4(f): both email and mobile hold live OTPs; stepup with mobile OTP succeeds
-    and the email OTP remains live (second stepup with email OTP succeeds)."""
+    and the email OTP remains live (second stepup with email OTP succeeds).
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Await _register_and_login and keep the result.
+        3. Call token_svc.verify_access_token.
+        4. Open the database session.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     mobile = _mobile()
     data = await _register_and_login(client, mobile)
     access = data["access_token"]
@@ -275,7 +352,17 @@ async def test_stepup_wrong_otp_does_not_burn_attempts(
     client: AsyncClient, api_sessionmaker: SessionMaker, fake_redis: fakeredis.aioredis.FakeRedis
 ) -> None:
     """4(g): wrong OTP when both are live -> 401 OTP_INVALID and neither
-    identifier's attempts counter advanced beyond the single recorded attempt."""
+    identifier's attempts counter advanced beyond the single recorded attempt.
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Await _register_and_login and keep the result.
+        3. Call token_svc.verify_access_token.
+        4. Open the database session.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     mobile = _mobile()
     data = await _register_and_login(client, mobile)
     access = data["access_token"]

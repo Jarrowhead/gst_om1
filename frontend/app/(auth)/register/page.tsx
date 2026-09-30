@@ -25,6 +25,17 @@ import { clearSession, setRoleCookie } from "@/lib/auth/session";
 type Role = "CLIENT" | "CA";
 type Stage = "pick" | "identifier" | "otp";
 
+/**
+ * Registration page. Role is chosen here, then a REGISTER OTP creates the user.
+ *
+ * Flow:
+ *   1. pick() stores CLIENT or CA.
+ *   2. request() sends a REGISTER OTP and shows the dev code.
+ *   3. verify() creates the session. CA goes to /totp; a business goes to /app.
+ *
+ * Debug:
+ *   LOGIN on a new number fails. This page must use purpose REGISTER so the user row is created.
+ */
 export default function RegisterPage() {
   const router = useRouter();
   const [role, setRole] = useState<Role | null>(null);

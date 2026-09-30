@@ -32,6 +32,10 @@ def _envelope(code: str, message: str, status: int) -> JSONResponse:
 
     Debug:
         Clients branch on error.code, not on free-text message.
+
+    Flow:
+        1. Build JSON {success: false, error: {code, message}}.
+        2. Set the HTTP status from the caller.
     """
     return JSONResponse(
         status_code=status,

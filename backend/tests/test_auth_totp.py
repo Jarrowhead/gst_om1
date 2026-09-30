@@ -31,23 +31,57 @@ _rng = random.SystemRandom()
 
 
 def _mobile() -> str:
-    """Unique per-call mobile — the suite shares the live dev DB (isolation)."""
+    """Unique per-call mobile — the suite shares the live dev DB (isolation).
+
+    Flow:
+        1. Return a 10-digit mobile that starts with 9.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     return "9" + "".join(_rng.choice("0123456789") for _ in range(9))
 
 
 async def _login(client: AsyncClient) -> tuple[dict[str, Any], str]:
-    """Register+login a FRESH user per call; returns (tokens, mobile)."""
+    """Register+login a FRESH user per call; returns (tokens, mobile).
+
+    Flow:
+        1. Build a fresh identifier with _mobile().
+        2. Return (await _register_and_login(client, mobile), mobile).
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     mobile = _mobile()
     return await _register_and_login(client, mobile), mobile
 
 
 async def _user_id_from_access(sessionmaker: SessionMaker, access_token: str) -> uuid.UUID:
+    """User id embedded in a verified access token.
+
+    Flow:
+        1. Return token_svc.verify_access_token(access_token).
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     return token_svc.verify_access_token(access_token)
 
 
 async def test_totp_setup_returns_secret_and_qr_uri(
     client: AsyncClient, api_sessionmaker: SessionMaker
 ) -> None:
+    """test totp setup returns secret and qr uri.
+
+    Flow:
+        1. Await _login and keep the result.
+        2. Call POST /api/v1/auth/totp/setup and read the JSON envelope.
+        3. Expect HTTP 200.
+        4. Assert body['secret'].
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     data, _mobile_used = await _login(client)
     headers = {"Authorization": f"Bearer {data['access_token']}"}
     resp = await client.post("/api/v1/auth/totp/setup", headers=headers)
@@ -66,6 +100,17 @@ async def test_totp_setup_returns_secret_and_qr_uri(
 async def test_totp_verify_wrong_code_rejected_then_correct_enables(
     client: AsyncClient, api_sessionmaker: SessionMaker
 ) -> None:
+    """test totp verify wrong code rejected then correct enables.
+
+    Flow:
+        1. Await _login and keep the result.
+        2. Call POST /api/v1/auth/totp/setup and read the JSON envelope.
+        3. Call POST /api/v1/auth/totp/verify and read the JSON envelope.
+        4. Expect HTTP 401.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     data, _mobile_used = await _login(client)
     headers = {"Authorization": f"Bearer {data['access_token']}"}
     setup = await client.post("/api/v1/auth/totp/setup", headers=headers)
@@ -87,6 +132,17 @@ async def test_totp_verify_wrong_code_rejected_then_correct_enables(
 
 
 async def test_totp_setup_twice_conflicts_after_enable(client: AsyncClient) -> None:
+    """test totp setup twice conflicts after enable.
+
+    Flow:
+        1. Await _login and keep the result.
+        2. Call POST /api/v1/auth/totp/setup and read the JSON envelope.
+        3. Call now.
+        4. Call POST /api/v1/auth/totp/verify and read the JSON envelope.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     data, _mobile_used = await _login(client)
     headers = {"Authorization": f"Bearer {data['access_token']}"}
     setup = await client.post("/api/v1/auth/totp/setup", headers=headers)
@@ -99,6 +155,17 @@ async def test_totp_setup_twice_conflicts_after_enable(client: AsyncClient) -> N
 
 
 async def test_totp_unit_enable_requires_valid_code() -> None:
+    """test totp unit enable requires valid code.
+
+    Flow:
+        1. Call totp_svc.generate_secret.
+        2. Open the database session.
+        3. Await totp_svc.enable_totp.
+        4. Assert await totp_svc.enable_totp(secret, pyotp.TOTP(secret).now()) is True.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     secret = totp_svc.generate_secret()
     with pytest.raises(TotpInvalid):
         await totp_svc.enable_totp(secret, "000000")
@@ -106,13 +173,32 @@ async def test_totp_unit_enable_requires_valid_code() -> None:
 
 
 async def test_totp_already_enabled_guard_unit() -> None:
+    """test totp already enabled guard unit.
+
+    Flow:
+        1. Call totp_svc.generate_secret.
+        2. Open the database session.
+        3. Call totp_svc.assert_not_enabled.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     secret = totp_svc.generate_secret()
     with pytest.raises(TotpAlreadyEnabled):
         totp_svc.assert_not_enabled(secret, object())
 
 
 async def test_totp_window_tolerance_unit() -> None:
-    """valid_window=1 accepts the previous 30s step (clock drift)."""
+    """valid_window=1 accepts the previous 30s step (clock drift).
+
+    Flow:
+        1. Call totp_svc.generate_secret.
+        2. Call at.
+        3. Assert totp_svc.verify_code(secret, prev_code, valid_window=1) is True.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     secret = totp_svc.generate_secret()
     t0 = dt.datetime.now(tz=dt.UTC) - dt.timedelta(seconds=30)
     prev_code = pyotp.TOTP(secret).at(t0)
@@ -120,12 +206,33 @@ async def test_totp_window_tolerance_unit() -> None:
 
 
 async def test_totp_requires_authentication(client: AsyncClient) -> None:
+    """test totp requires authentication.
+
+    Flow:
+        1. Call POST /api/v1/auth/totp/setup and read the JSON envelope.
+        2. Expect HTTP 401.
+        3. Assert resp.json()['error']['code'] in {'TOKEN_INVALID', 'MISSING_CREDENTIALS'}.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     resp = await client.post("/api/v1/auth/totp/setup")
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] in {"TOKEN_INVALID", "MISSING_CREDENTIALS"}
 
 
 async def test_me_reports_totp_enabled_flag(client: AsyncClient) -> None:
+    """test me reports totp enabled flag.
+
+    Flow:
+        1. Await _login and keep the result.
+        2. Call POST /api/v1/auth/totp/setup and read the JSON envelope.
+        3. Call POST /api/v1/auth/totp/verify and read the JSON envelope.
+        4. Call GET /api/v1/auth/me and read the JSON envelope.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     data, _mobile_used = await _login(client)
     headers = {"Authorization": f"Bearer {data['access_token']}"}
     setup = await client.post("/api/v1/auth/totp/setup", headers=headers)
@@ -142,7 +249,17 @@ async def test_me_reports_totp_enabled_flag(client: AsyncClient) -> None:
 async def test_stepup_issues_verifiable_token(
     client: AsyncClient, api_sessionmaker: SessionMaker
 ) -> None:
-    """POST /auth/stepup with a fresh OTP -> stepup_token verifiable as JWT."""
+    """POST /auth/stepup with a fresh OTP -> stepup_token verifiable as JWT.
+
+    Flow:
+        1. Await _login and keep the result.
+        2. Await _user_id_from_access and keep the result.
+        3. Open the database session.
+        4. Await session.get and keep the result.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     data, _mobile_used = await _login(client)
     headers = {"Authorization": f"Bearer {data['access_token']}"}
     user_id = await _user_id_from_access(api_sessionmaker, data["access_token"])
@@ -164,6 +281,17 @@ async def test_stepup_issues_verifiable_token(
 async def test_stepup_rejects_wrong_otp(
     client: AsyncClient, api_sessionmaker: SessionMaker
 ) -> None:
+    """test stepup rejects wrong otp.
+
+    Flow:
+        1. Await _login and keep the result.
+        2. Await _user_id_from_access and keep the result.
+        3. Open the database session.
+        4. Await session.get and keep the result.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     data, _mobile_used = await _login(client)
     headers = {"Authorization": f"Bearer {data['access_token']}"}
     user_id = await _user_id_from_access(api_sessionmaker, data["access_token"])
@@ -180,5 +308,13 @@ async def test_stepup_rejects_wrong_otp(
 
 
 async def test_totp_helper_generates_unique_secrets() -> None:
+    """test totp helper generates unique secrets.
+
+    Flow:
+        1. Assert len(secrets) == 20.
+
+    Debug:
+        A wrong TOTP or OTP is 401. Codes in the previous 30-second window still pass.
+    """
     secrets = {totp_svc.generate_secret() for _ in range(20)}
     assert len(secrets) == 20

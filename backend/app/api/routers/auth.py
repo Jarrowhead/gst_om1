@@ -58,6 +58,10 @@ async def otp_request(body: OtpRequestIn, session: SessionDep) -> dict[str, obje
 
     Debug:
         Rate limit and identifier errors are AuthError → envelope, not this function.
+
+    Flow:
+        1. service.request_otp validates the identifier, rate-limits, and stores the code.
+        2. Wrap the result in {success, data}. dev_otp is present only in dev mode.
     """
     data = await service.request_otp(session, body.identifier, body.purpose)
     return {"success": True, "data": data}
@@ -133,6 +137,10 @@ async def totp_setup(session: SessionDep, user_id: UserDep) -> dict[str, object]
 
     Debug:
         409 TOTP_ALREADY_ENABLED if totp_enabled_at is already set.
+
+    Flow:
+        1. require_user has already checked the bearer token.
+        2. service.totp_setup stores a pending secret and returns secret plus qr_uri.
     """
     return {"success": True, "data": await service.totp_setup(session, user_id)}
 
@@ -145,6 +153,10 @@ async def totp_verify(
 
     Debug:
         401 TOTP_INVALID if setup was skipped or the code is outside the ±30s window.
+
+    Flow:
+        1. service.totp_verify checks the 6-digit code against the pending secret.
+        2. On success totp_enabled_at is set and the envelope returns {enabled: true}.
     """
     return {"success": True, "data": await service.totp_verify(session, user_id, body.code)}
 
@@ -155,5 +167,9 @@ async def me(session: SessionDep, user_id: UserDep) -> dict[str, object]:
 
     Debug:
         firm null means the UI should use the client shell even if the user picked CA.
+
+    Flow:
+        1. service.me loads the user, business ids, and the earliest firm.
+        2. Return that payload in the success envelope.
     """
     return {"success": True, "data": await service.me(session, user_id)}

@@ -24,6 +24,17 @@ interface Me {
   firm: string | null;
 }
 
+/**
+ * CA home. Confirms the refresh cookie still works, then shows the signed-in name.
+ *
+ * Flow:
+ *   1. On load, silentRefresh. Failure clears the role cookie and opens /login.
+ *   2. fetchMe. A null firm still renders this page.
+ *   3. signOut drops the memory token and role cookie, then opens /login.
+ *
+ * Debug:
+ *   A CA who has not created a firm is sent to /app by login, not by this page.
+ */
 export default function CaHomePage() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);

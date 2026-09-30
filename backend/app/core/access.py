@@ -250,7 +250,15 @@ class AuditWriter:
     """
 
     def __init__(self, session: AsyncSession) -> None:
-        """Bind the writer to the caller's session so audit + action commit together."""
+        """Bind the writer to the caller's session so audit + action commit together.
+
+        Flow:
+            1. Store the caller's AsyncSession.
+            2. log() later flushes an INSERT on that same session.
+
+        Debug:
+            This helper feeds the tests below. A bad fixture GSTIN fails before the route is called.
+        """
         self._session = session
 
     async def log(

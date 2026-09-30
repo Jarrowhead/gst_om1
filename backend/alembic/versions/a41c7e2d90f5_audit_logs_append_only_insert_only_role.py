@@ -64,17 +64,37 @@ def _role_password() -> str:
 
     Debug:
         Tests that connect as gst_app must use the same value the migration applied.
+
+    Flow:
+        1. Read GST_APP_ROLE_PASSWORD.
+        2. Fall back to the dev password when the env var is unset.
     """
     return os.environ.get("GST_APP_ROLE_PASSWORD", DEFAULT_APP_ROLE_PASSWORD)
 
 
 def _grant_all(schema: str, table: str) -> str:
-    """SQL granting SELECT/INSERT/UPDATE/DELETE on one table to gst_app."""
+    """SQL granting SELECT/INSERT/UPDATE/DELETE on one table to gst_app.
+
+    Flow:
+        1. Format a GRANT SELECT, INSERT, UPDATE, DELETE for schema.table.
+        2. The upgrade loop executes that SQL as gst_app.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture GSTIN fails before the route is called.
+    """
     return f"GRANT SELECT, INSERT, UPDATE, DELETE ON {schema}.{table} TO gst_app"
 
 
 def _grant_insert_only(schema: str, table: str) -> str:
-    """SQL granting INSERT only. Used for core.audit_logs."""
+    """SQL granting INSERT only. Used for core.audit_logs.
+
+    Flow:
+        1. Format GRANT INSERT only.
+        2. Used for core.audit_logs so UPDATE and DELETE fail for gst_app.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture GSTIN fails before the route is called.
+    """
     return f"GRANT INSERT ON {schema}.{table} TO gst_app"
 
 
@@ -83,6 +103,10 @@ def _q(value: str) -> str:
 
     Debug:
         A password with a quote must survive this or CREATE ROLE fails at upgrade.
+
+    Flow:
+        1. Double any single quote in the password.
+        2. Wrap the result in SQL single quotes for the CREATE ROLE statement.
     """
     return "'" + value.replace("'", "''") + "'"
 

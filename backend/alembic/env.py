@@ -106,6 +106,10 @@ def run_migrations_online() -> None:
     Debug:
         Windows needs the selector loop policy (tests set it). Nested asyncio.run fails
         if this is called from an already-running loop.
+
+    Flow:
+        1. If Alembic is not in offline mode, this is the entrypoint.
+        2. asyncio.run calls run_async_migrations, which opens the DB and applies revisions.
     """
     asyncio.run(run_async_migrations())
 

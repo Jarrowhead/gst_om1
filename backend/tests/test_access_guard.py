@@ -89,6 +89,11 @@ async def _grant_client(
 
     Debug:
         Access tests that expect 404 should not call this for the denied actor.
+
+    Flow:
+        1. Open the database session.
+        2. Call session.add.
+
     """
     async with sessionmaker() as session:
         session.add(BusinessUser(business_id=business_id, user_id=user_id, role=role))
@@ -131,6 +136,15 @@ async def _link_firm_business(
     business_id: uuid.UUID,
     status: LinkStatus = LinkStatus.ACTIVE,
 ) -> None:
+    """Insert a firm-to-business link with the given status.
+
+    Flow:
+        1. Open the database session.
+        2. Call session.add.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture fails before the route is called.
+    """
     async with sessionmaker() as session:
         session.add(
             CaClientLink(
@@ -148,6 +162,12 @@ def _mobile() -> str:
 
     Digit-only (identifier validator requires isdigit, 10-13 chars); 10^9
     space with a live-DB retry-free design matches test_auth_totp's approach.
+
+    Flow:
+        1. Return a 10-digit mobile that starts with 9.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture fails before the route is called.
     """
     import random
 
@@ -155,7 +175,14 @@ def _mobile() -> str:
 
 
 def _row(label: str, token: str, kind: str, ident: Any, ok: bool) -> dict[str, Any]:
-    """One cross-tenant matrix row (label, bearer token, probe kind, target, expect)."""
+    """One cross-tenant matrix row (label, bearer token, probe kind, target, expect).
+
+    Flow:
+        1. Return one matrix row: label, token, kind, ident, and the expected result.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture fails before the route is called.
+    """
     return {"label": label, "token": token, "kind": kind, "ident": ident, "expect": ok}
 
 
@@ -164,12 +191,31 @@ def _row(label: str, token: str, kind: str, ident: Any, ok: bool) -> dict[str, A
 
 
 def _guard_app(sessionmaker: SessionMaker) -> Any:
+    """App with probe routes that use the production access guards.
+
+    Flow:
+        1. Call create_app.
+        2. Call APIRouter.
+        3. Call access_mod.require_business_access.
+        4. Call access_mod.require_registration_access.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture fails before the route is called.
+    """
     from app.db.session import get_session
     from app.main import create_app
 
     app = create_app()
 
     async def _override_session() -> AsyncGenerator[Any, None]:
+        """Yield one session from the test session factory.
+
+        Flow:
+            1. Open the database session.
+
+        Debug:
+            This helper feeds the tests below. A bad fixture fails before the route is called.
+        """
         async with sessionmaker() as session:
             yield session
 
@@ -183,6 +229,14 @@ def _guard_app(sessionmaker: SessionMaker) -> Any:
     async def business_probe(
         access: Annotated[Any, Depends(biz_guard)],
     ) -> dict[str, object]:
+        """business probe.
+
+        Flow:
+            1. Return the business id, role, and how access was granted.
+
+        Debug:
+            Trace this function from its caller. API errors use the {success, error} envelope.
+        """
         return {
             "success": True,
             "data": {
@@ -196,6 +250,15 @@ def _guard_app(sessionmaker: SessionMaker) -> Any:
     async def restricted_probe(
         access: Annotated[Any, Depends(biz_guard)],
     ) -> dict[str, object]:
+        """restricted probe.
+
+        Flow:
+            1. Raise when the check fails.
+            2. Return success once can_revoke is true.
+
+        Debug:
+            Trace this function from its caller. API errors use the {success, error} envelope.
+        """
         if not access.can_revoke:
             raise access_mod.PermissionDenied("can_revoke required")
         return {"success": True, "data": {"revoked": True}}
@@ -204,6 +267,14 @@ def _guard_app(sessionmaker: SessionMaker) -> Any:
     async def registration_probe(
         racc: Annotated[Any, Depends(reg_guard)],
     ) -> dict[str, object]:
+        """registration probe.
+
+        Flow:
+            1. Return the GSTIN and how registration access was granted.
+
+        Debug:
+            Trace this function from its caller. API errors use the {success, error} envelope.
+        """
         return {"success": True, "data": {"gstin": racc.gstin, "via": racc.access.via}}
 
     app.include_router(router)
@@ -214,6 +285,14 @@ def _guard_app(sessionmaker: SessionMaker) -> Any:
 
 
 async def test_fixture_gstin_passes_mod36_and_pan_embedding() -> None:
+    """test fixture gstin passes mod36 and pan embedding.
+
+    Flow:
+        1. For each case: call make_pan.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     for _ in range(25):
         pan = make_pan()
         g = make_gstin(pan=pan)
@@ -237,6 +316,17 @@ async def test_cross_tenant_matrix(
     client: AsyncClient,
     api_sessionmaker: SessionMaker,
 ) -> None:
+    """test cross tenant matrix.
+
+    Flow:
+        1. Await _seed_business and keep the result.
+        2. Await _register_and_login and keep the result.
+        3. Await _grant_client.
+        4. Await _seed_firm and keep the result.
+
+    Debug:
+        Another tenant's id is 404, the same shape as a missing row.
+    """
     pan_a, pan_b = make_pan(), make_pan()
     biz_a, reg_a = await _seed_business(
         api_sessionmaker, pan_a, "Tenant A Pvt Ltd", make_gstin(pan=pan_a)
@@ -346,7 +436,17 @@ async def test_cross_tenant_matrix(
 async def test_guard_denies_revoked_link_immediately(
     client: AsyncClient, api_sessionmaker: SessionMaker
 ) -> None:
-    """Revoke = instant access death (TESTING_STRATEGY §6 #5, no cache)."""
+    """Revoke = instant access death (TESTING_STRATEGY §6 #5, no cache).
+
+    Flow:
+        1. Call make_pan.
+        2. Await _seed_business and keep the result.
+        3. Await _register_and_login and keep the result.
+        4. Call token_svc.verify_access_token.
+
+    Debug:
+        Failure text is the assertion message. API errors use {success:false, error:{code,message}}.
+    """
     pan = make_pan()
     biz, _reg = await _seed_business(api_sessionmaker, pan, "Revoke Co", make_gstin(pan=pan))
     fu = await _register_and_login(client, _mobile())
@@ -383,6 +483,15 @@ async def test_guard_denies_revoked_link_immediately(
 async def test_audit_writer_appends_rows(
     client: AsyncClient, api_sessionmaker: SessionMaker
 ) -> None:
+    """test audit writer appends rows.
+
+    Flow:
+        1. Open the database session.
+        2. Call User.
+
+    Debug:
+        audit.audit_logs accepts INSERT only. UPDATE and DELETE must fail.
+    """
     from app.core.access import audit
     from app.db.models.core import User
 
@@ -432,6 +541,15 @@ async def test_audit_logs_table_is_append_only(
     Proven against the dedicated restricted role `gst_app` (migration
     a41c7e2d90f5): INSERT allowed, UPDATE/DELETE raise. The dev superuser
     `gst` bypasses grants, so the tamper attempts MUST run as gst_app.
+
+    Flow:
+        1. Call os.environ.get.
+        2. Open the database session.
+        3. Await audit.
+        4. Call cur.execute.
+
+    Debug:
+        audit.audit_logs accepts INSERT only. UPDATE and DELETE must fail.
     """
     import os
 

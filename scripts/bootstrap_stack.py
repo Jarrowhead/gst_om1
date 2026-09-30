@@ -68,6 +68,10 @@ def port_open(port: int, host: str = "127.0.0.1") -> bool:
 
     Debug:
         A port can be open while the service is still initializing (see minio_alive).
+
+    Flow:
+        1. Open a TCP socket with a 1-second timeout.
+        2. Return True only when connect_ex reports success.
     """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1.0)
@@ -79,6 +83,10 @@ def wait_for_port(port: int, timeout_s: float, what: str) -> None:
 
     Debug:
         Message names the service (postgres/redis/minio) and the port that never opened.
+
+    Flow:
+        1. Poll port_open every half second until the deadline.
+        2. Raise RuntimeError naming the service if the port never opens.
     """
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -153,7 +161,15 @@ def start_postgres() -> None:
 
 
 def _pg_env() -> dict[str, str]:
-    """Environment for psql/createdb with PGPASSWORD set (not passed on the command line)."""
+    """Environment for psql/createdb with PGPASSWORD set (not passed on the command line).
+
+    Flow:
+        1. Copy the current environment.
+        2. Set PGPASSWORD so psql and createdb can log in as gst.
+
+    Debug:
+        This helper feeds the tests below. A bad fixture GSTIN fails before the route is called.
+    """
     return {**os.environ, "PGPASSWORD": PG_PASSWORD}
 
 

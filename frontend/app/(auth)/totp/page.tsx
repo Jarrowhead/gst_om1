@@ -20,6 +20,17 @@ import { setRoleCookie } from "@/lib/auth/session";
 
 type Stage = "setup" | "verify" | "firm";
 
+/**
+ * CA TOTP setup, then the first firm. Firm create is rejected until TOTP is enabled.
+ *
+ * Flow:
+ *   1. begin() calls /auth/totp/setup and shows the secret plus QR.
+ *   2. verify() sends the 6-digit code and enables TOTP.
+ *   3. createTheFirm() calls POST /firm and opens /ca.
+ *
+ * Debug:
+ *   The 6-digit code is computed from the secret on screen and changes every 30 seconds.
+ */
 export default function TotpPage() {
   const router = useRouter();
   const [stage, setStage] = useState<Stage>("setup");

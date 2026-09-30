@@ -11,6 +11,16 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+/**
+ * Sends the browser to the shell that matches the gst_role cookie.
+ *
+ * Flow:
+ *   1. Read gst_role on the server.
+ *   2. CA → /ca, CLIENT → /app, anything else → /login.
+ *
+ * Debug:
+ *   The cookie is only a hint. Each shell still calls silentRefresh and /auth/me.
+ */
 export default async function RootPage() {
   const cookieStore = await cookies();
   const role = cookieStore.get("gst_role")?.value ?? null;

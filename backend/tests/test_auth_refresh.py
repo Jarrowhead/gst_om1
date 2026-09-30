@@ -26,16 +26,41 @@ _rng = random.SystemRandom()
 
 
 def _mobile() -> str:
-    """Unique per-call mobile — the suite shares the live dev DB (isolation)."""
+    """Unique per-call mobile — the suite shares the live dev DB (isolation).
+
+    Flow:
+        1. Return a 10-digit mobile that starts with 9.
+
+    Debug:
+        Refresh reads the httpOnly cookie on /api/v1/auth. A missing cookie is 401.
+    """
     return "9" + "".join(_rng.choice("0123456789") for _ in range(9))
 
 
 async def _login(client: AsyncClient) -> dict[str, Any]:
-    """Register+login a FRESH user per call (per-test isolation)."""
+    """Register+login a FRESH user per call (per-test isolation).
+
+    Flow:
+        1. Return await _register_and_login(client, _mobile()).
+
+    Debug:
+        Refresh reads the httpOnly cookie on /api/v1/auth. A missing cookie is 401.
+    """
     return await _register_and_login(client, _mobile())
 
 
 async def test_refresh_returns_new_access_token(client: AsyncClient) -> None:
+    """test refresh returns new access token.
+
+    Flow:
+        1. Await _login and keep the result.
+        2. Call POST /api/v1/auth/refresh and read the JSON envelope.
+        3. Expect HTTP 200.
+        4. Call resp.json.
+
+    Debug:
+        Refresh reads the httpOnly cookie on /api/v1/auth. A missing cookie is 401.
+    """
     data = await _login(client)
     resp = await client.post(
         "/api/v1/auth/refresh", json={"refresh_token": data["refresh_token"]}
@@ -51,6 +76,17 @@ async def test_refresh_returns_new_access_token(client: AsyncClient) -> None:
 
 
 async def test_refresh_rotates_old_token_is_retired(client: AsyncClient) -> None:
+    """test refresh rotates old token is retired.
+
+    Flow:
+        1. Await _login and keep the result.
+        2. Call POST /api/v1/auth/refresh and read the JSON envelope.
+        3. Expect HTTP 200.
+        4. Call get_redis.
+
+    Debug:
+        Refresh reads the httpOnly cookie on /api/v1/auth. A missing cookie is 401.
+    """
     data = await _login(client)
     first = await client.post(
         "/api/v1/auth/refresh", json={"refresh_token": data["refresh_token"]}
@@ -62,7 +98,17 @@ async def test_refresh_rotates_old_token_is_retired(client: AsyncClient) -> None
 
 
 async def test_refresh_reuse_kills_family(client: AsyncClient) -> None:
-    """The rotation-kill: replay of a rotated token invalidates siblings."""
+    """The rotation-kill: replay of a rotated token invalidates siblings.
+
+    Flow:
+        1. Await _login and keep the result.
+        2. Call POST /api/v1/auth/refresh and read the JSON envelope.
+        3. Expect HTTP 200.
+        4. Assert sibling['access_token'].
+
+    Debug:
+        Reusing a rotated refresh token must 401 and delete every key in that family.
+    """
     data = await _login(client)
     old_refresh = data["refresh_token"]
     first = await client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh})
@@ -86,7 +132,17 @@ async def test_refresh_reuse_kills_family(client: AsyncClient) -> None:
 async def test_refresh_reuse_kill_is_total_in_redis(
     client: AsyncClient,
 ) -> None:
-    """Direct Redis proof: after reuse, zero live tokens remain for the family."""
+    """Direct Redis proof: after reuse, zero live tokens remain for the family.
+
+    Flow:
+        1. Await _login and keep the result.
+        2. Await get and keep the result.
+        3. Assert family_id is not None and isinstance(family_id, str).
+        4. Call POST /api/v1/auth/refresh and read the JSON envelope.
+
+    Debug:
+        Reusing a rotated refresh token must 401 and delete every key in that family.
+    """
     data = await _login(client)
     old_refresh = data["refresh_token"]
     family_id = await get_redis().get(f"rtk:{old_refresh}")
@@ -107,7 +163,17 @@ async def test_refresh_reuse_kill_is_total_in_redis(
 async def test_access_token_survives_refresh_kill_but_expires_on_own_clock(
     client: AsyncClient,
 ) -> None:
-    """Rotation-kill revokes refresh, not already-issued access JWTs (stateless)."""
+    """Rotation-kill revokes refresh, not already-issued access JWTs (stateless).
+
+    Flow:
+        1. Await _login and keep the result.
+        2. Call POST /api/v1/auth/refresh and read the JSON envelope.
+        3. Call GET /api/v1/auth/me and read the JSON envelope.
+        4. Expect HTTP 200.
+
+    Debug:
+        Refresh reads the httpOnly cookie on /api/v1/auth. A missing cookie is 401.
+    """
     data = await _login(client)
     old_refresh = data["refresh_token"]
     await client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh})
@@ -118,6 +184,16 @@ async def test_access_token_survives_refresh_kill_but_expires_on_own_clock(
 
 
 async def test_unknown_or_garbage_refresh_token_401(client: AsyncClient) -> None:
+    """test unknown or garbage refresh token 401.
+
+    Flow:
+        1. Call POST /api/v1/auth/refresh and read the JSON envelope.
+        2. Expect HTTP 401.
+        3. Assert resp.json()['error']['code'] == 'TOKEN_INVALID'.
+
+    Debug:
+        Refresh reads the httpOnly cookie on /api/v1/auth. A missing cookie is 401.
+    """
     resp = await client.post(
         "/api/v1/auth/refresh", json={"refresh_token": "garbage-token-value"}
     )
@@ -126,6 +202,16 @@ async def test_unknown_or_garbage_refresh_token_401(client: AsyncClient) -> None
 
 
 async def test_refresh_missing_token_401(client: AsyncClient) -> None:
+    """test refresh missing token 401.
+
+    Flow:
+        1. Call POST /api/v1/auth/refresh and read the JSON envelope.
+        2. Expect HTTP 401.
+        3. Assert resp.json()['error']['code'] == 'TOKEN_INVALID'.
+
+    Debug:
+        Refresh reads the httpOnly cookie on /api/v1/auth. A missing cookie is 401.
+    """
     resp = await client.post("/api/v1/auth/refresh", json={})
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "TOKEN_INVALID"
@@ -134,7 +220,17 @@ async def test_refresh_missing_token_401(client: AsyncClient) -> None:
 async def test_refresh_ttl_is_seven_days(
     fake_redis: fakeredis.aioredis.FakeRedis,
 ) -> None:
-    """Family + token keys carry the 7-day TTL (± slack)."""
+    """Family + token keys carry the 7-day TTL (± slack).
+
+    Flow:
+        1. Call uuid.uuid4.
+        2. Await token_svc.issue_refresh_family and keep the result.
+        3. Await fake_redis.ttl and keep the result.
+        4. Assert 7 * 24 * 3600 <= ttl <= 7 * 24 * 3600 + 120.
+
+    Debug:
+        Refresh reads the httpOnly cookie on /api/v1/auth. A missing cookie is 401.
+    """
     user_id = uuid.uuid4()
     token = await token_svc.issue_refresh_family(fake_redis, user_id)
     ttl = await fake_redis.ttl(f"rtk:{token}")
@@ -148,7 +244,17 @@ async def test_refresh_ttl_is_seven_days(
 async def test_logout_retires_only_presented_token(
     fake_redis: fakeredis.aioredis.FakeRedis,
 ) -> None:
-    """revoke_refresh_token: presented token dies; a second sibling survives."""
+    """revoke_refresh_token: presented token dies; a second sibling survives.
+
+    Flow:
+        1. Call get_redis.
+        2. Call uuid.uuid4.
+        3. Await token_svc.issue_refresh_family and keep the result.
+        4. Await token_svc.revoke_refresh_token.
+
+    Debug:
+        Refresh reads the httpOnly cookie on /api/v1/auth. A missing cookie is 401.
+    """
     redis = get_redis()
     user_id = uuid.uuid4()
     t1 = await token_svc.issue_refresh_family(fake_redis, user_id)
@@ -164,7 +270,17 @@ async def test_logout_retires_only_presented_token(
 async def test_second_family_is_unaffected_by_first_family_kill(
     fake_redis: fakeredis.aioredis.FakeRedis,
 ) -> None:
-    """Reuse-kill is family-scoped, not user-scoped or global."""
+    """Reuse-kill is family-scoped, not user-scoped or global.
+
+    Flow:
+        1. Call uuid.uuid4.
+        2. Await token_svc.issue_refresh_family and keep the result.
+        3. Await token_svc.rotate_refresh_token and keep the result.
+        4. Open the database session.
+
+    Debug:
+        Refresh reads the httpOnly cookie on /api/v1/auth. A missing cookie is 401.
+    """
     user_id = uuid.uuid4()
     family_a = await token_svc.issue_refresh_family(fake_redis, user_id)
     family_b = await token_svc.issue_refresh_family(fake_redis, user_id)
