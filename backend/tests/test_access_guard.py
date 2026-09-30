@@ -52,7 +52,14 @@ async def _seed_business(
     gstin: str,
     state_code: str = "27",
 ) -> tuple[Business, GstRegistration]:
-    """Business + one registration (checksum-valid fixture GSTIN)."""
+    """Insert a business and one registration using a checksum-valid fixture GSTIN.
+
+    Flow:
+        Assert checksum and PAN embedding, insert Business, flush, insert GstRegistration, commit.
+
+    Debug:
+        Assertion here means make_gstin and make_pan were not paired.
+    """
     assert gstin_checksum_valid(gstin), "fixture GSTIN must pass mod-36"
     assert gstin[2:12] == pan, "PAN must equal GSTIN[2:12] (API cross-check)"
     async with sessionmaker() as session:
@@ -78,13 +85,25 @@ async def _grant_client(
     user_id: uuid.UUID,
     role: BusinessRole,
 ) -> None:
+    """Insert a business_users row so the user is a client of that business.
+
+    Debug:
+        Access tests that expect 404 should not call this for the denied actor.
+    """
     async with sessionmaker() as session:
         session.add(BusinessUser(business_id=business_id, user_id=user_id, role=role))
         await session.commit()
 
 
 async def _seed_firm(sessionmaker: SessionMaker, user_id: uuid.UUID) -> tuple[uuid.UUID, uuid.UUID]:
-    """Firm + PARTNER membership for the user."""
+    """Insert a CA firm and a PARTNER membership. Returns (firm_id, member_id).
+
+    Flow:
+        Random firm_name and ca_code so unique constraints do not collide across tests.
+
+    Debug:
+        Firm access still needs an ACTIVE ca_client_links row; membership alone is not enough.
+    """
     async with sessionmaker() as session:
         firm = CaFirm(
             firm_name=f"Firm {uuid.uuid4().hex[:6]}",

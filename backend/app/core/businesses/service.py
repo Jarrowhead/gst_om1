@@ -29,7 +29,17 @@ async def create_business(
     trade_name: str | None = None,
     created_by: uuid.UUID | None = None,
 ) -> Business:
-    """Create a business (API_SPEC §2 POST /businesses)."""
+    """Create a business (API_SPEC §2 POST /businesses).
+
+    Flow:
+        1. validate_pan. Existing PAN → 409 before insert.
+        2. Insert Business, flush; IntegrityError → rollback + 409.
+        3. If created_by set, add BusinessUser OWNER.
+        4. Audit BUSINESS_CREATED, commit, refresh.
+
+    Debug:
+        409 on a new PAN → race lost the unique index (IntegrityError path).
+    """
     validated_pan = validate_pan(pan)
     existing = (
         await session.execute(select(Business).where(Business.pan == validated_pan))
@@ -80,7 +90,14 @@ async def create_registration(
 ) -> GstRegistration:
     """Attach a checksum-valid GSTIN to a business.
 
-    API_SPEC §2 POST /businesses/{id}/registrations.
+    Flow:
+        1. Missing business → AccessDenied (caller should have guarded).
+        2. validate_gstin against business.pan. Duplicate GSTIN → 409.
+        3. irn_applicable when aato_minor > 5_00_00_00_000 paise (₹5 Cr).
+        4. Insert, audit REGISTRATION_CREATED, commit.
+
+    Debug:
+        PAN mismatch is ValueError from validate_gstin (422), not 409.
     """
     business = await session.get(Business, business_id)
     if business is None:
@@ -126,7 +143,14 @@ async def list_my_businesses(
     session: AsyncSession,
     user_id: uuid.UUID,
 ) -> list[dict[str, Any]]:
-    """GET /businesses — businesses the user can access via client membership."""
+    """GET /businesses — businesses the user can access via client membership.
+
+    Flow:
+        Join BusinessUser for user_id, order by legal_name, return id/name/pan/role.
+
+    Debug:
+        CA firm links are not listed here — only business_users rows.
+    """
     rows = (
         await session.execute(
             select(Business, BusinessUser.role)
@@ -151,7 +175,14 @@ async def get_business_detail(
     session: AsyncSession,
     business_id: uuid.UUID,
 ) -> dict[str, Any]:
-    """GET /businesses/{id} incl. registrations."""
+    """GET /businesses/{id} incl. registrations.
+
+    Flow:
+        Load business or AccessDenied. Load all GstRegistration rows. Return detail dict.
+
+    Debug:
+        Guard already ran on the route; this 404 is for a deleted row between guard and read.
+    """
     business = await session.get(Business, business_id)
     if business is None:
         raise AccessDenied("no access to this business")
@@ -189,7 +220,16 @@ async def update_registration(
     aato_minor: int | None = None,
     filing_scheme: FilingScheme | None = None,
 ) -> GstRegistration:
-    """PATCH /registrations/{regId} — updates allowed fields only."""
+    """PATCH /registrations/{regId} — updates allowed fields only.
+
+    Flow:
+        1. Missing row → RegistrationNotFound.
+        2. Apply address, aato (recomputes irn_applicable), filing_scheme if not None.
+        3. If anything changed, audit REGISTRATION_UPDATED and commit.
+
+    Debug:
+        Omitting a field (None) leaves it unchanged. IRN flips only when aato_minor is sent.
+    """
     reg = await session.get(GstRegistration, registration_id)
     if reg is None:
         raise RegistrationNotFound("no access to this registration")
@@ -225,7 +265,14 @@ async def update_business(
     legal_name: str | None = None,
     trade_name: str | None = None,
 ) -> Business:
-    """PATCH /businesses/{id} — updates allowed fields only."""
+    """PATCH /businesses/{id} — updates allowed fields only.
+
+    Flow:
+        Load or AccessDenied. Patch legal_name/trade_name when not None. Audit if dirty.
+
+    Debug:
+        PAN is immutable here. Empty string is applied; None means 'not in patch'.
+    """
     business = await session.get(Business, business_id)
     if business is None:
         raise AccessDenied("no access to this business")

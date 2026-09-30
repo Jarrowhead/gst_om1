@@ -23,6 +23,14 @@ UserDep = Annotated[uuid.UUID, Depends(require_user)]
 async def create_firm(
     body: FirmCreateIn, session: SessionDep, user_id: UserDep
 ) -> dict[str, object]:
+    """POST /firm. Bearer required. Delegates to firms.service.create_firm.
+
+    Flow:
+        TOTP check and PAN validation happen in the service, not here.
+
+    Debug:
+        403 TOTP_REQUIRED until /auth/totp/verify has set totp_enabled_at.
+    """
     data = await firm_service.create_firm(
         session, user_id, body.firm_name, body.pan
     )

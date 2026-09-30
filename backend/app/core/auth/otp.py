@@ -35,7 +35,16 @@ class OtpRequest:
 
 
 def validate_identifier(identifier: str) -> str:
-    """Accept a 10-13 digit mobile or an email; else 422."""
+    """Accept a 10-13 digit mobile or an email; else raise IdentifierInvalid (422).
+
+    Flow:
+        1. Strip a leading '+' and whitespace, then test digit length 10-13.
+        2. Else require '@' and a dotted domain part.
+        3. Return the stripped original on success.
+
+    Debug:
+        422 IDENTIFIER_INVALID → this function. Short mobiles and missing '.' fail here.
+    """
     digits = identifier.replace("+", "").strip()
     if digits.isdigit() and 10 <= len(digits) <= 13:
         return identifier.strip()
@@ -47,15 +56,28 @@ def validate_identifier(identifier: str) -> str:
 
 
 def _otp_key(identifier: str) -> str:
+    """Redis key holding the live OTP JSON for one identifier (TTL ~5 min)."""
     return f"otp:{identifier}"
 
 
 def _rate_key(identifier: str) -> str:
+    """Redis key counting OTP requests per identifier (TTL 1 hour)."""
     return f"otp_rl:{identifier}"
 
 
 async def request_otp(redis: Redis, identifier: str, purpose: str) -> OtpRequest:
-    """Issue an OTP (5/hour/identifier) and store it with a 5-min TTL."""
+    """Issue an OTP (5/hour/identifier) and store it with a 5-min TTL.
+
+    Flow:
+        1. validate_identifier.
+        2. INCR otp_rl:{id}; first hit sets 3600s expiry.
+        3. If count > otp_request_limit_per_hour → OtpRateLimited.
+        4. Store JSON {code, attempts:0, purpose} at otp:{id} with otp_expiry_seconds.
+        5. Return dev_otp only when settings.dev_mode is True.
+
+    Debug:
+        429 OTP_RATE_LIMITED → counter key, not the OTP key. Missing dev_otp in UI → GST_DEV_MODE false.
+    """
     settings = get_settings()
     identifier = validate_identifier(identifier)
 
@@ -77,8 +99,15 @@ async def request_otp(redis: Redis, identifier: str, purpose: str) -> OtpRequest
 async def verify_otp(redis: Redis, identifier: str, otp: str) -> str:
     """Verify the code; returns the OTP's purpose (LOGIN or REGISTER).
 
-    Failure paths in order: expired -> wrong code (attempts++) -> attempts
-    exhausted (kill the OTP) -> success deletes the OTP (single use).
+    Flow:
+        1. Missing redis key → OtpExpired.
+        2. Wrong code: increment attempts; if >= max, delete key and OtpTooManyAttempts.
+        3. Wrong but under max: rewrite JSON, keep TTL + slack, raise OtpInvalid.
+        4. Match: delete key (single use) and return purpose.
+
+    Debug:
+        Second correct verify fails as expired — key was deleted. Attempts not incrementing
+        → peek path (stepup) never called this function.
     """
     settings = get_settings()
     identifier = validate_identifier(identifier)
@@ -103,6 +132,15 @@ async def verify_otp(redis: Redis, identifier: str, otp: str) -> str:
 
 
 async def peek_otp(redis: Redis, identifier: str) -> dict[str, object] | None:
-    """Read-only OTP record lookup; no writes, no validation, cannot raise."""
+    """Read-only OTP record lookup; no writes, no validation, cannot raise.
+
+    Flow:
+        1. GET otp:{identifier}.
+        2. None if missing, else parsed JSON.
+
+    Debug:
+        Step-up uses this to match a code without burning attempts. If verify then fails,
+        the record was deleted between peek and verify.
+    """
     raw = await redis.get(_otp_key(identifier))
     return None if raw is None else json.loads(raw)

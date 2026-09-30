@@ -10,6 +10,14 @@ class AuthError(Exception):
     code = "AUTH_ERROR"
 
     def __init__(self, message: str) -> None:
+        """Store message for the API envelope; status_code/code come from the subclass.
+
+        Flow:
+            super() + self.message. auth_error_handler reads code, message, status_code.
+
+        Debug:
+            Missing code on a new subclass falls back to AUTH_ERROR / 401 from this base.
+        """
         super().__init__(message)
         self.message = message
 

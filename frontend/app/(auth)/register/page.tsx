@@ -28,11 +28,18 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /** Remember CLIENT or CA and move to the identifier step. */
   function pick(r: Role) {
     setRole(r);
     setStage("identifier");
   }
 
+  /**
+   * REGISTER OTP request. Purpose must be REGISTER or verify will not create the user.
+   *
+   * Flow:
+   *   requestOtp(REGISTER) → dev banner → stage otp.
+   */
   async function request(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -48,6 +55,16 @@ export default function RegisterPage() {
     }
   }
 
+  /**
+   * Verify REGISTER OTP. CA goes to /totp; client goes to /app.
+   *
+   * Flow:
+   *   verifyOtp → setAccessToken. CA cookie + /totp before any firm exists.
+   *   Client cookie + /app.
+   *
+   * Debug:
+   *   CA landing on /app means this branch saw role !== CA (pick was skipped).
+   */
   async function verify(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);

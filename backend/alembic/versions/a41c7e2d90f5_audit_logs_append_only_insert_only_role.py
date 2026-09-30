@@ -60,20 +60,30 @@ DEFAULT_APP_ROLE_PASSWORD = "gst_app_dev_pass"  # noqa: S105
 
 
 def _role_password() -> str:
-    """Dev password for the app role; prod sets GST_APP_ROLE_PASSWORD."""
+    """Password for role gst_app. GST_APP_ROLE_PASSWORD overrides the dev default.
+
+    Debug:
+        Tests that connect as gst_app must use the same value the migration applied.
+    """
     return os.environ.get("GST_APP_ROLE_PASSWORD", DEFAULT_APP_ROLE_PASSWORD)
 
 
 def _grant_all(schema: str, table: str) -> str:
+    """SQL granting SELECT/INSERT/UPDATE/DELETE on one table to gst_app."""
     return f"GRANT SELECT, INSERT, UPDATE, DELETE ON {schema}.{table} TO gst_app"
 
 
 def _grant_insert_only(schema: str, table: str) -> str:
+    """SQL granting INSERT only. Used for core.audit_logs."""
     return f"GRANT INSERT ON {schema}.{table} TO gst_app"
 
 
 def _q(value: str) -> str:
-    """Render a SQL string literal safely (asyncpg has no psycopg composer)."""
+    """Render a SQL string literal (double single quotes). asyncpg has no psycopg composer.
+
+    Debug:
+        A password with a quote must survive this or CREATE ROLE fails at upgrade.
+    """
     return "'" + value.replace("'", "''") + "'"
 
 
@@ -94,6 +104,16 @@ _ROLE_DDL_TEMPLATE = """
 
 
 def upgrade() -> None:
+    """Create role gst_app and grant DML, with INSERT-only on core.audit_logs.
+
+    Flow:
+        1. CREATE or ALTER ROLE with the escaped password.
+        2. GRANT full DML on every v2 table except audit_logs.
+        3. GRANT INSERT only on audit_logs. REVOKE from PUBLIC.
+
+    Debug:
+        UPDATE on audit_logs as gst_app must fail. The API still connects as gst in dev.
+    """
     conn = op.get_bind()
     password = _role_password()
     # Create/refresh the role (cluster-level; DO block keeps it idempotent).
@@ -121,6 +141,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Revoke gst_app grants and drop the role.
+
+    Flow:
+        REVOKE ALL on each v2 table, then DROP ROLE if present.
+
+    Debug:
+        DROP ROLE fails if a session is still connected as gst_app.
+    """
     conn = op.get_bind()
     for schema, tables in _TABLES.items():
         for table in tables:

@@ -64,12 +64,22 @@ SERVICES: dict[str, int] = {
 
 
 def port_open(port: int, host: str = "127.0.0.1") -> bool:
+    """True if a TCP connect to host:port succeeds within 1s.
+
+    Debug:
+        A port can be open while the service is still initializing (see minio_alive).
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1.0)
         return s.connect_ex((host, port)) == 0
 
 
 def wait_for_port(port: int, timeout_s: float, what: str) -> None:
+    """Poll port_open every 0.5s until timeout, then raise RuntimeError.
+
+    Debug:
+        Message names the service (postgres/redis/minio) and the port that never opened.
+    """
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if port_open(port):
@@ -82,6 +92,17 @@ def wait_for_port(port: int, timeout_s: float, what: str) -> None:
 
 
 def start_postgres() -> None:
+    """Start local Postgres on PG_PORT via pg_ctl, initdb on first run.
+
+    Flow:
+        1. Missing pg_ctl.exe → RuntimeError (expects Farmer tools path).
+        2. Port already open → return.
+        3. No PG_VERSION → initdb with pwfile outside the data dir.
+        4. pg_ctl start -p PG_PORT, wait up to 120s.
+
+    Debug:
+        initdb refuses a non-empty data dir. Log: tools/pg/postgres.log.
+    """
     pg_ctl = PG_BIN / "pg_ctl.exe"
     if not pg_ctl.exists():
         raise RuntimeError(f"pg_ctl not found at {pg_ctl}")
@@ -132,10 +153,19 @@ def start_postgres() -> None:
 
 
 def _pg_env() -> dict[str, str]:
+    """Environment for psql/createdb with PGPASSWORD set (not passed on the command line)."""
     return {**os.environ, "PGPASSWORD": PG_PASSWORD}
 
 
 def psql(sql: str, dbname: str = "postgres") -> str:
+    """Run one SQL statement via psql -tAc and return stripped stdout.
+
+    Flow:
+        psql.exe against 127.0.0.1:PG_PORT. Non-zero exit → RuntimeError with stderr.
+
+    Debug:
+        Auth failures usually mean PG_USER/PG_PASSWORD do not match initdb.
+    """
     proc = subprocess.run(
         [
             str(PG_BIN / "psql.exe"),
@@ -161,6 +191,15 @@ def psql(sql: str, dbname: str = "postgres") -> str:
 
 
 def seed_database() -> None:
+    """Create gst_filing_db and schemas core, gst, extraction if missing.
+
+    Flow:
+        1. createdb when the database row is absent.
+        2. CREATE SCHEMA for any of the three names not already in pg_namespace.
+
+    Debug:
+        Idempotent. Tables come from Alembic, not this function.
+    """
     exists = psql("SELECT 1 FROM pg_database WHERE datname = 'gst_filing_db'") == "1"
     if not exists:
         subprocess.run(
@@ -200,6 +239,14 @@ def seed_database() -> None:
 
 
 def start_redis() -> None:
+    """Start redis-server on REDIS_PORT if the port is closed.
+
+    Flow:
+        Missing binary → error. Port open → return. Else Popen detached, wait 30s.
+
+    Debug:
+        Windows build ignores daemonize; CREATE_NO_WINDOW hides the console. No AOF/RDB.
+    """
     if not REDIS_BIN.exists():
         raise RuntimeError(f"redis-server not found at {REDIS_BIN}")
     if port_open(REDIS_PORT):
@@ -229,6 +276,14 @@ def start_redis() -> None:
 
 
 def start_minio() -> None:
+    """docker compose up -d for MinIO if MINIO_PORT is closed.
+
+    Flow:
+        Port open → return. Else compose file tools/docker-compose.yml, wait 60s.
+
+    Debug:
+        Docker Desktop not running fails the compose subprocess, not the port wait.
+    """
     if port_open(MINIO_PORT):
         print(f"[minio] port {MINIO_PORT} already open — assuming minio is up")
         return
@@ -242,7 +297,14 @@ def start_minio() -> None:
 
 
 def minio_alive() -> bool:
-    """MinIO liveness endpoint answers 200 once ready (GET / returns 403 for anon)."""
+    """True when GET /minio/health/live returns 200.
+
+    Flow:
+        urlopen with 3s timeout. OSError or HTTPError → False.
+
+    Debug:
+        Port open but False means the process is up and not ready yet.
+    """
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{MINIO_PORT}/minio/health/live", timeout=3) as r:
             return r.status == 200
@@ -251,11 +313,15 @@ def minio_alive() -> bool:
 
 
 def seed_bucket() -> None:
-    """Create + version the gst-docs bucket via `mc` inside the server container.
+    """Create and version the gst-docs bucket via mc inside the MinIO container.
 
-    The pgsty/silo image bundles `mc`; running it in-container means it talks to the
-    server over the container's own loopback — no host networking (broken on Docker
-    Desktop) and no throwaway sidecar container needed.
+    Flow:
+        1. Wait up to 30s for minio_alive.
+        2. docker exec: mc alias, mb --ignore-existing, version enable, ls.
+        3. Non-zero mc → RuntimeError with stderr.
+
+    Debug:
+        mc uses container loopback :9000, not the host API port. HOME=/tmp for mc config.
     """
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline and not minio_alive():
@@ -285,6 +351,14 @@ def seed_bucket() -> None:
 
 
 def health_check() -> dict[str, bool]:
+    """Print OK/FAIL per service port. Raise if any port is closed.
+
+    Flow:
+        port_open for postgres, redis, minio. Return the map after printing.
+
+    Debug:
+        --check uses this only. It does not prove schemas or the gst-docs bucket exist.
+    """
     results = {name: port_open(port) for name, port in SERVICES.items()}
     for name, ok in results.items():
         print(f"[health] {name}:{SERVICES[name]} -> {'OK' if ok else 'FAIL'}")
@@ -294,6 +368,15 @@ def health_check() -> dict[str, bool]:
 
 
 def main() -> int:
+    """Start PG, Redis, MinIO and seed DB/bucket, or only health-check with --check.
+
+    Flow:
+        --check → health_check and return 0.
+        Else start_postgres, seed_database, start_redis, start_minio, seed_bucket, health_check.
+
+    Debug:
+        MinIO is last so a slow Docker start does not block Postgres and Redis.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="verify health only")
     args = parser.parse_args()

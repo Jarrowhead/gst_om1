@@ -22,6 +22,14 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    """Widen core.gst_registrations.aato_latest_minor from Integer to BigInteger.
+
+    Flow:
+        alter_column in schema core. Paise amounts above 2^31-1 must fit.
+
+    Debug:
+        Downgrade zeroes out-of-range values before narrowing. Do not downgrade production data.
+    """
     op.alter_column(
         "gst_registrations",
         "aato_latest_minor",
@@ -33,6 +41,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Narrow aato_latest_minor back to Integer after zeroing values outside 32-bit range.
+
+    Flow:
+        UPDATE rows outside ±2147483647 to 0, then alter_column to Integer.
+
+    Debug:
+        Data loss is intentional so the type change can reverse on a dev database.
+    """
     conn = op.get_bind()
     # AATO values may exceed 32-bit int after forward tests; truncate to 0
     # before narrowing the column so the downgrade stays reversible.

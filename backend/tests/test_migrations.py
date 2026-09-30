@@ -63,6 +63,14 @@ EXPECTED_TABLES: dict[str, set[str]] = {
 
 
 def _alembic_config(db_name: str) -> Config:
+    """Alembic Config pointed at a throwaway database on :5436.
+
+    Flow:
+        Load backend/alembic.ini and override sqlalchemy.url to db_name.
+
+    Debug:
+        Migrations hitting gst_filing_db mean this override did not win over env.py.
+    """
     cfg = Config(BACKEND_DIR / "alembic.ini")
     cfg.set_main_option(
         "script_location", str(BACKEND_DIR / "alembic")
@@ -73,7 +81,16 @@ def _alembic_config(db_name: str) -> Config:
 
 @pytest.fixture()
 async def scratch_db() -> AsyncGenerator[str, None]:
-    """Create an empty throwaway database; drop it (with leftovers) after."""
+    """Create gst_mig_test_* , seed schemas, yield the name, then drop it.
+
+    Flow:
+        1. CREATE DATABASE on the postgres maintenance DB.
+        2. CREATE SCHEMA core/gst/extraction inside the new database.
+        3. Yield the name. Teardown terminates backends and DROP DATABASE.
+
+    Debug:
+        Leftover databases are also removed by pytest_sessionstart in conftest.py.
+    """
     db_name = f"gst_mig_test_{uuid.uuid4().hex[:12]}"
     admin = create_async_engine(ADMIN_URL, isolation_level="AUTOCOMMIT")
     try:
@@ -109,6 +126,11 @@ async def scratch_db() -> AsyncGenerator[str, None]:
 
 
 async def _tables_and_enums(db_name: str) -> tuple[set[str], set[str]]:
+    """Return (schema.table names, enum type names) from a scratch database.
+
+    Debug:
+        A missing table after upgrade means the migration chain stopped early.
+    """
     engine = create_async_engine(f"{BASE_URL}/{db_name}")
     try:
         async with engine.connect() as conn:
@@ -138,10 +160,14 @@ async def _tables_and_enums(db_name: str) -> tuple[set[str], set[str]]:
 
 
 def _alembic(db_name: str, op_name: str, target: str) -> None:
-    """Run an alembic command in a worker thread.
+    """Run one Alembic command against db_name on a worker thread.
 
-    Alembic's env.py calls asyncio.run(), which requires no running loop;
-    pytest-asyncio owns the test's loop, so hop threads.
+    Flow:
+        Build config, call command.upgrade or command.downgrade. Alembic's env.py
+        calls asyncio.run(), so this must not run on pytest-asyncio's loop.
+
+    Debug:
+        Failures surface as the worker thread exception. Check the scratch DB name.
     """
     import concurrent.futures
 

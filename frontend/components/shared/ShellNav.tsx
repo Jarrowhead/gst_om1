@@ -1,6 +1,15 @@
 /**
  * Shell chrome shared by both role shells — FRONTEND_SPECIFICATION.md §1.
  */
+/**
+ * Top bar: product name, role chip, user name, sign-out.
+ *
+ * Flow:
+ *   Renders data-testid shell-role and shell-user. onSignOut is the button handler.
+ *
+ * Debug:
+ *   Playwright asserts these test ids. Role text is the label prop, not the cookie.
+ */
 export function ShellNav({
   roleLabel,
   userName,

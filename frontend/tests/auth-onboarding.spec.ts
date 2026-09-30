@@ -12,12 +12,19 @@ import { totpCode } from "./totp-utils";
 
 const BACKEND = "http://127.0.0.1:8084";
 
+/**
+ * Reserved 0-prefix mobile, unique per call via Date.now.
+ *
+ * Debug:
+ *   Two tests in the same millisecond can collide. OTP purpose must be REGISTER first.
+ */
 function uniqueMobile(): string {
   // 13 digits with the reserved 0-prefix (validate_identifier: 10-13 digits);
   // timestamp-derived so concurrent tests never share an identifier.
   return `0${String(Date.now()).slice(-12)}`;
 }
 
+/** POST /auth/otp/request and return the envelope data (includes dev_otp in dev). */
 async function requestOtp(identifier: string, purpose: string) {
   const res = await fetch(`${BACKEND}/api/v1/auth/otp/request`, {
     method: "POST",
@@ -32,7 +39,7 @@ async function requestOtp(identifier: string, purpose: string) {
   return body.data!;
 }
 
-/** Wait for the dev OTP banner that the backend echoes in dev mode. */
+/** Read the 6-digit code from the register screen's dev OTP banner. */
 async function waitForDevOtp(page: Page): Promise<string> {
   const banner = page.getByTestId("reg-dev-otp");
   await expect(banner).toBeVisible();
@@ -42,7 +49,7 @@ async function waitForDevOtp(page: Page): Promise<string> {
   return match![1];
 }
 
-/** Wait for the dev OTP banner on the login screen. */
+/** Read the 6-digit code from the login screen's dev OTP banner (testid dev-otp). */
 async function waitForLoginDevOtp(page: Page): Promise<string> {
   const banner = page.getByTestId("dev-otp");
   await expect(banner).toBeVisible();

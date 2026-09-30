@@ -29,6 +29,20 @@ Usage:
 
 --once:     run a single cycle (pick next task, build, test, monitor) then exit.
 --no-probe: skip liveness probing and use the first candidate of each chain.
+
+DEBUGGING QUICK MAP
+-------------------
+  build/run.log          — timestamped trace of every cycle (spawn, verdict, monitor ACTION)
+  build/state.json       — tasks[].status, retries, tester_feedback, monitor_instruction
+  build/prompt.txt       — last agent prompt written (what hermes received)
+  build/loop.lock        — PID of live loop; stale PID → auto take-over on next start
+  build/role_models.json — probed model per role for this run
+
+  Exit 3                 — duplicate loop (another pid_alive holds lock)
+  ESCALATED in state     — retries exhausted OR monitor ESCALATE OR bad ADVANCE on weak evidence
+
+  Cycle order: first_pending_task → BUILD → TEST → MONITOR → (ADVANCE|RETRY|ESCALATE)
+  Weak evidence          — has_real_evidence() False → monitor_blocks even if VERDICT: PASS
 """
 
 import json
@@ -111,6 +125,16 @@ PROBE_TIMEOUT = 180      # seconds allowed for one liveness probe
 
 
 def log(msg):
+    """Append one timestamped line to stdout and build/run.log.
+
+    Flow:
+        1. Format ISO timestamp + message.
+        2. print(flush=True) for live tailing.
+        3. Append same line to LOG_PATH (creates file on first write).
+
+    Debug:
+        Tail run.log during long hermes runs; search for ✗/⚠/🛑 markers.
+    """
     line = f"[{datetime.now().isoformat(timespec='seconds')}] {msg}"
     print(line, flush=True)
     with open(LOG_PATH, "a", encoding="utf-8") as f:
@@ -118,6 +142,15 @@ def log(msg):
 
 
 def load_json(path, default):
+    """Read JSON from path or return default if missing.
+
+    Flow:
+        1. If path exists → utf-8 load and return object.
+        2. Else → return default (caller supplies shape, e.g. {} or {"phases": []}).
+
+    Debug:
+        Corrupt JSON raises json.JSONDecodeError — fix file or delete to re-seed default.
+    """
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -125,6 +158,14 @@ def load_json(path, default):
 
 
 def save_json(path, obj):
+    """Write obj to path as pretty-printed UTF-8 JSON (indent=2).
+
+    Flow:
+        1. Truncate/overwrite path atomically at process level (not atomic rename).
+
+    Debug:
+        If state.json looks stale mid-cycle, another process may be writing — check loop.lock.
+    """
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2, ensure_ascii=False)
 
@@ -132,7 +173,16 @@ def save_json(path, obj):
 # ── Singleton lock ─────────────────────────────────────────────────────────
 
 def pid_alive(pid: int) -> bool:
-    """Best-effort cross-platform 'is this PID running?' check."""
+    """Best-effort cross-platform 'is this PID running?' check.
+
+    Flow:
+        1. Windows: tasklist /FI PID eq {pid}; look for quoted pid in CSV output.
+        2. Unix: os.kill(pid, 0) — signal 0 tests existence without killing.
+        3. Any exception → False (treat as not running → stale lock takeover).
+
+    Debug:
+        False positives rare; False negatives if PID reused quickly after crash.
+    """
     try:
         if os.name == "nt":
             out = subprocess.run(
@@ -147,7 +197,17 @@ def pid_alive(pid: int) -> bool:
 
 
 def acquire_lock() -> None:
-    """Refuse to start when another live loop holds the lock."""
+    """Ensure only one build_loop.py mutates build/state.json at a time.
+
+    Flow:
+        1. If loop.lock exists → read PID.
+        2. If PID alive → print error and sys.exit(3).
+        3. If stale → log NOTE and overwrite lock with current os.getpid().
+        4. If no lock → write current PID.
+
+    Debug:
+        Zombie lock after kill -9: delete build/loop.lock manually if pid not running.
+    """
     if os.path.exists(LOCK_PATH):
         try:
             with open(LOCK_PATH, encoding="utf-8") as f:
@@ -164,7 +224,16 @@ def acquire_lock() -> None:
 
 
 def release_lock() -> None:
-    """Remove the lock file if this process owns it."""
+    """Remove loop.lock when this process is the recorded owner.
+
+    Flow:
+        1. If lock missing → no-op.
+        2. Read owner PID string; if matches os.getpid() → os.remove(lock).
+        3. Swallow OSError (best-effort cleanup on shutdown).
+
+    Debug:
+        Lock left after crash → next run takes over if pid_alive False.
+    """
     try:
         if os.path.exists(LOCK_PATH):
             with open(LOCK_PATH, encoding="utf-8") as f:
@@ -176,12 +245,18 @@ def release_lock() -> None:
 
 
 def agent_env():
-    """Env for child `hermes` processes.
+    """Build environment dict for child `hermes` subprocesses.
 
-    TERM=dumb matters on Windows: when the loop is launched from a bash/MSYS
-    shell, TERM=xterm-256color leaks in and prompt_toolkit misbehaves in the
-    child, so `hermes chat` behaves inconsistently. Forcing a dumb terminal
-    keeps the child in plain line mode.
+    Flow:
+        1. Copy os.environ.
+        2. Force TERM=dumb (avoids prompt_toolkit issues when parent is MSYS/bash on Windows).
+        3. Set NO_COLOR=1 if unset (stable log parsing).
+
+    Returns:
+        dict suitable for subprocess.run(..., env=...).
+
+    Debug:
+        If hermes hangs interactively, verify TERM=dumb is present in child env.
     """
     env = dict(os.environ)
     env["TERM"] = "dumb"
@@ -190,7 +265,22 @@ def agent_env():
 
 
 def run_agent(model, provider, prompt, max_turns=250, timeout=1800):
-    """Run one hermes chat --oneshot subprocess and return its stdout."""
+    """Run one hermes chat --oneshot subprocess and return combined stdout+stderr.
+
+    Flow:
+        1. Write full prompt to build/prompt.txt (inspect for agent instructions).
+        2. Spawn: hermes chat --oneshot --query-file prompt.txt -m model --provider ...
+           with --in ROOT, --yolo --accept-hooks, -Q (quiet), max_turns cap.
+        3. Wait up to timeout seconds; on TimeoutExpired return "TIMEOUT after Ns".
+        4. Concatenate stdout+stderr; log duration and exit code.
+
+    Returns:
+        str agent transcript (or TIMEOUT prefix string).
+
+    Debug:
+        Empty output + short log → agent_failed() likely True → run_role tries next model.
+        Re-run hermes manually with same PROMPT_FILE contents to reproduce.
+    """
     with open(PROMPT_FILE, "w", encoding="utf-8") as f:
         f.write(prompt)
     cmd = [
@@ -239,10 +329,19 @@ RUNTIME_FAIL_MARKERS = (
 def agent_failed(model, provider, out: str) -> bool:
     """True when the child agent produced no usable work (dead route / auth wall).
 
-    Distinguishes a dead upstream from a model that merely replied poorly: a
-    route that never emitted any assistant text AND shows an auth/quota marker is
-    dead, so the chain should move on rather than hand an empty report to the
-    Tester (which is what makes the Tester emit WEAK evidence).
+    Flow:
+        1. Strip output; empty → failed.
+        2. Leading "TIMEOUT" → failed.
+        3. Lowercase scan for RUNTIME_FAIL_MARKERS (401, rate limit, invalid_api_key, ...).
+        4. Healthy runs include "session_id:" in output — marker without session → failed.
+        5. Very short output (<400 chars) with marker → failed.
+
+    Returns:
+        True → run_role should try next model in chain.
+
+    Debug:
+        Log line "FAILED AT RUNTIME — next candidate" — compare out[:500] for marker text.
+        False here but bad code → model ran; Tester/Monitor must catch quality issues.
     """
     text = (out or "").strip()
     if not text:
@@ -262,14 +361,18 @@ def agent_failed(model, provider, out: str) -> bool:
 def run_role(role: str, chain, prompt, roles_path_fallback=None, timeout=1800, start=None):
     """Run a role, failing over across its chain at RUNTIME (not just at probe).
 
-    The probe only proves the route answers a one-liner; free tiers routinely die
-    on the first real tool-using turn. So the chain is walked here too and the
-    first route that returns usable work wins.
+    Flow:
+        1. Normalize chain to list; if start model is in chain, rotate list to begin at start.
+        2. Drop STUB_ROUTES from candidates (known local qwen stubs); fall back to full list if empty.
+        3. For each (model, provider): run_agent → if not agent_failed, return (out, meta).
+        4. Log failover; if all fail, return last_out anyway (Monitor may ESCALATE).
 
-    `start` = the model the probe declared live for this role. The walk BEGINS
-    there instead of at the head of the chain, so a run does not burn minutes
-    re-discovering an already-known-dead route. Rotating keeps the rest of the
-    chain as fallback in priority order.
+    Returns:
+        tuple[str, dict] — (transcript, {"model": ..., "provider": ...}).
+
+    Debug:
+        roles_path_fallback is unused legacy param — ignore.
+        All candidates fail → Tester gets empty/401 text → weak evidence → retry loop.
     """
     candidates = list(chain if isinstance(chain, list) else [chain])
     if start and any(m == start for m, _ in candidates):
@@ -295,7 +398,17 @@ def run_role(role: str, chain, prompt, roles_path_fallback=None, timeout=1800, s
 # ── Role resolution (liveness-probed fallback chains) ──────────────────────
 
 def probe_agent(model, provider):
-    """Tiny liveness probe using the loop's real spawn path."""
+    """Tiny liveness probe using the same hermes spawn path as run_agent.
+
+    Flow:
+        1. Write prompt "Reply with exactly: PING-OK\\n" to prompt.txt.
+        2. hermes --max-turns 2, PROBE_TIMEOUT seconds.
+        3. Return True iff "PING-OK" appears in stdout+stderr.
+
+    Debug:
+        False for all chain entries → resolve_roles uses head of chain anyway (logged).
+        PING passes but run fails → auth wall on real workload; agent_failed handles failover.
+    """
     with open(PROMPT_FILE, "w", encoding="utf-8") as f:
         f.write("Reply with exactly: PING-OK\n")
     cmd = [
@@ -319,7 +432,21 @@ def probe_agent(model, provider):
 
 
 def resolve_roles(probe: bool = True) -> dict:
-    """Pick the first live model per role. Cached in build/role_models.json."""
+    """Pick the first live model per role; optionally cache in build/role_models.json.
+
+    Flow:
+        1. If probe=False → assign first entry of each ROLE_CHAINS + FEEDBACK_CHAIN (fast/dev).
+        2. Else for each role chain: probe_agent until one returns True → chosen.
+        3. If none live → log warning and use chain[0] anyway.
+        4. Same for feedback chain; save resolved dict to ROLES_PATH.
+
+    Returns:
+        dict with keys builder, tester, monitor, feedback → {model, provider}.
+
+    Debug:
+        Use --no-probe to skip 3×chain×PROBE_TIMEOUT wait on startup.
+        Edit ROLE_CHAINS order to prefer routes that work on your machine.
+    """
     resolved = {}
     if not probe:
         for role, chain in ROLE_CHAINS.items():
@@ -354,6 +481,19 @@ def resolve_roles(probe: bool = True) -> dict:
 # ── Prompt builders ────────────────────────────────────────────────────────
 
 def builder_prompt(task, phase, tester_feedback=None, monitor_instruction=None):
+    """Assemble the BUILDER agent system prompt for the current task.
+
+    Flow:
+        1. Optionally prepend tester_feedback block (prior FAIL findings).
+        2. Optionally prepend monitor_instruction block (binding fix directive).
+        3. Inject ROOT, phase/task ids, done_when, doc list, AI_BUILD_PLAYBOOK hard rules.
+
+    Returns:
+        str written to build/prompt.txt before hermes spawn.
+
+    Debug:
+        If Builder ignores scope, compare RELEVANT DOCS in prompt vs git diff --stat.
+    """
     parts = []
     if tester_feedback:
         parts.append(
@@ -394,6 +534,20 @@ FINISH by running the task's verification yourself and reporting exact test name
 
 
 def tester_prompt(task, phase, builder_out):
+    """Assemble the TESTER agent prompt (verify Builder claims with real commands).
+
+    Flow:
+        1. Embed task/phase metadata and done_when criteria.
+        2. Append last 6000 chars of builder_out as untrusted claims.
+        3. Require COMMANDS RUN / VERDICT / FINDINGS output format for parsing.
+
+    Returns:
+        str for hermes tester role.
+
+    Debug:
+        If has_real_evidence False, search tester history in state.json for missing
+        "COMMANDS RUN:" or pytest/ruff markers in slot history tester out.
+    """
     return f"""You are the TESTER agent for the GST Filing Platform. You do NOT write feature code. You verify the Builder's work and report PASS or FAIL.
 
 PROJECT ROOT: {ROOT}
@@ -430,6 +584,20 @@ If FAIL, list exactly what the Builder must fix, ranked by severity.
 
 
 def monitor_prompt(task, phase, tester_result, builder_out, state, evidence_flag):
+    """Assemble the MONITOR agent prompt (supervise Builder + Tester, decide ACTION).
+
+    Flow:
+        1. Set flag_note from evidence_flag ok|weak (matches has_real_evidence pre-check).
+        2. Embed state.json snapshot, truncated builder/tester outputs.
+        3. Require structured fields: TESTER_EVIDENCE, DEFECT, BUILDER_INSTRUCTION, ACTION, NEXT, REASON.
+
+    Returns:
+        str for hermes monitor role.
+
+    Debug:
+        parse_field(m_out, "ACTION") empty → defaults to ESCALATE in main().
+        Monitor ADVANCE overridden when monitor_blocks True — see main() evidence gate.
+    """
     next_phase = get_next_phase(phase)
     flag_note = {
         "ok": "The loop's independent evidence-gate found concrete command output in the Tester report.",
@@ -485,6 +653,18 @@ RULES:
 
 
 def feedback_prompt(task, phase, tester_result, monitor_instruction):
+    """Assemble BUILDER-FEEDBACK prompt (condense tester + monitor into fix list).
+
+    Flow:
+        1. Embed tester findings and monitor BUILDER_INSTRUCTION.
+        2. Ask for ≤30 line ordered fix list with proof commands.
+
+    Returns:
+        str for optional feedback model on RETRY path.
+
+    Debug:
+        Stored in slot tester_feedback when non-empty; else raw t_out is reused.
+    """
     return f"""You are the BUILDER-FEEDBACK agent for the GST Filing Platform. You do NOT build the whole feature. You turn the Tester's findings and the Monitor's instruction into a precise fix plan for the Builder.
 
 PROJECT ROOT: {ROOT}
@@ -505,10 +685,27 @@ Keep it under 30 lines. Do not add new scope beyond this task.
 
 
 def get_phases():
+    """Load phase list from build/plan.json (key "phases").
+
+    Flow:
+        load_json(PLAN_PATH, {"phases": []})["phases"]
+
+    Debug:
+        Missing plan.json → empty phases → first_pending_task returns None immediately.
+    """
     return load_json(PLAN_PATH, {"phases": []})["phases"]
 
 
 def get_next_phase(phase):
+    """Return the phase dict after `phase` in plan order, or None if last.
+
+    Flow:
+        1. Linear scan get_phases() for matching phase["id"].
+        2. Return phases[i+1] if exists.
+
+    Debug:
+        Used only in monitor_prompt text (phase transition hints).
+    """
     phases = get_phases()
     for i, p in enumerate(phases):
         if p["id"] == phase["id"] and i + 1 < len(phases):
@@ -517,6 +714,21 @@ def get_next_phase(phase):
 
 
 def first_pending_task():
+    """Select the next task to run from plan + state.
+
+    Flow:
+        1. Walk phases in plan order, tasks in array order.
+        2. Read state["tasks"][task_id].status default "pending".
+        3. First task with status in ("pending", "blocked") wins.
+        4. If none → (None, None) → main sets status complete.
+
+    Returns:
+        tuple[task dict, phase dict] or (None, None).
+
+    Debug:
+        Task stuck "blocked" after escalation — edit state.json status to pending to retry.
+        "done" tasks are skipped; no backward revisit unless status reset manually.
+    """
     phases = get_phases()
     state = load_json(STATE_PATH, {})
     for phase in phases:
@@ -529,7 +741,18 @@ def first_pending_task():
 
 
 def parse_field(text, field):
-    """Pull `FIELD: value` out of an agent report (first match)."""
+    """Pull `FIELD: value` out of an agent report (first line match, case-insensitive key).
+
+    Flow:
+        1. Split text into lines; strip each.
+        2. First line starting with field: (case insensitive) → value after first colon.
+
+    Returns:
+        str value or "" if not found.
+
+    Debug:
+        Monitor must emit "ACTION: ADVANCE" exactly — extra words on same line OK after first colon.
+    """
     prefix = field + ":"
     for line in text.splitlines():
         s = line.strip()
@@ -541,8 +764,19 @@ def parse_field(text, field):
 def has_real_evidence(tester_out: str) -> bool:
     """Independent gate: does the Tester report contain real command evidence?
 
-    Deliberately mechanical — the Monitor also judges this, but a cheap
-    deterministic cross-check stops a chatty Tester from auto-passing a task.
+    Flow:
+        1. Lowercase tester output.
+        2. signal +1 if "commands run:" present.
+        3. signal +1 if any tool marker (pytest, ruff, npm, git, ...) found.
+        4. signal +1 if any result marker (passed, failed, traceback, ...).
+        5. Return signals >= 2 (needs both command-ish and outcome-ish text).
+
+    Returns:
+        bool — False triggers evidence_flag "weak" in monitor_prompt and monitor_blocks.
+
+    Debug:
+        Tester pasted commands but still weak → missing result keywords or COMMANDS RUN header.
+        Deliberately mechanical; tune markers list if legitimate reports fail gate.
     """
     t = (tester_out or "").lower()
     lowered = t
@@ -563,6 +797,31 @@ def has_real_evidence(tester_out: str) -> bool:
 
 
 def main():
+    """CLI entry: run the 3-agent build loop until done, escalated, or capped.
+
+    Flow:
+        1. Parse --once, --no-probe, --max-iters N.
+        2. mkdir build/, acquire_lock(), load/seed state.json.
+        3. resolve_roles(probe=not no_probe) → log model picks.
+        4. FOR it in 1..max_iters:
+           a. first_pending_task() — break complete if None.
+           b. Reset slot status pending; save state.
+           c. BUILD: run_role builder + builder_prompt(feedback, instruction from prior retry).
+           d. TEST: run_role tester; set passed = "VERDICT: PASS" in t_out;
+              real_ev = has_real_evidence(t_out).
+           e. MONITOR: run_role monitor with evidence ok|weak; parse ACTION, BUILDER_INSTRUCTION, etc.
+           f. monitor_blocks = not passed OR not real_ev OR m_evidence == "WEAK".
+           g. If ACTION ADVANCE and not monitor_blocks → slot done.
+           h. If ACTION ADVANCE and monitor_blocks → retry or escalate (evidence override).
+           i. If ACTION RETRY → increment retries, optional feedback agent, continue loop.
+           j. Else ESCALATE → break.
+           k. if --once: break after one full cycle.
+        5. release_lock(); return 0.
+
+    Debug:
+        Watch log lines verdict= / monitor: ACTION= / ↻ retry / 🛑 ESCALATED.
+        state["tasks"][sid]["history"] holds truncated agent outputs per role.
+    """
     once = "--once" in sys.argv
     no_probe = "--no-probe" in sys.argv
     max_iters = MAX_ITERATIONS
@@ -602,7 +861,7 @@ def main():
         slot["status"] = "pending"
         save_json(STATE_PATH, state)
 
-        # ── BUILD (carrying the Monitor's standing instruction) ──
+        # ── BUILD (carrying the Monitor's standing instruction from prior RETRY) ──
         feedback = slot.get("tester_feedback")
         instruction = slot.get("monitor_instruction")
         b_out, b_used = run_role("builder", ROLE_CHAINS["builder"],
@@ -627,7 +886,7 @@ def main():
         save_json(STATE_PATH, state)
         log(f"  verdict={'PASS' if passed else 'FAIL'} evidence={'real' if real_ev else 'WEAK'}")
 
-        # ── MONITOR SUPERVISION (inspects BOTH agents, issues instruction) ──
+        # ── MONITOR SUPERVISION (inspects BOTH agents, issues ACTION + BUILDER_INSTRUCTION) ──
         role_chain = ROLE_CHAINS["monitor"]
         m_out, _ = run_role("monitor", role_chain,
                             monitor_prompt(task, phase, t_out, b_out, state,
@@ -644,8 +903,7 @@ def main():
         log(f"  monitor: ACTION={action} evidence={m_evidence or '?'} "
             f"defect={slot['monitor_defect'][:80]!r}")
 
-        # The Monitor may not wave a task through on WEAK evidence — the loop
-        # honours the stricter of (tester verdict, evidence gate, monitor call).
+        # Stricter than Monitor alone: cannot ADVANCE on FAIL, weak evidence, or TESTER_EVIDENCE: WEAK
         monitor_blocks = (not passed) or (not real_ev) or (m_evidence == "WEAK")
 
         if action == "ADVANCE" and not monitor_blocks:

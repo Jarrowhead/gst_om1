@@ -34,5 +34,13 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Process-wide settings singleton."""
+    """Process-wide settings singleton (lru_cache).
+
+    Flow:
+        First call builds Settings from GST_* env and .env; later calls return the cache.
+
+    Debug:
+        Env changes after import are ignored until process restart (cache). Tests that
+        mutate env must clear get_settings.cache_clear().
+    """
     return Settings()

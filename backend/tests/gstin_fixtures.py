@@ -22,7 +22,14 @@ _rng = random.SystemRandom()
 
 
 def make_pan() -> str:
-    """Random structurally-valid PAN: AAA-PP-AAA -> 5 letters, 4 digits, 1 letter."""
+    """Random structurally-valid PAN: 5 letters, 4 digits, 1 letter.
+
+    Flow:
+        SystemRandom draws from ascii uppercase and digits. Not a real taxpayer PAN.
+
+    Debug:
+        Unique per call so parallel tests do not collide on businesses.pan.
+    """
     return (
         "".join(_rng.choice(string.ascii_uppercase) for _ in range(5))
         + "".join(_rng.choice(string.digits) for _ in range(4))
@@ -31,12 +38,13 @@ def make_pan() -> str:
 
 
 def _check_digit(first14: str) -> str:
-    """Mod-36 checksum character over the first 14 GSTIN chars.
+    """Mod-36 complement check character for 14 GSTIN chars.
 
-    Implements the GSTN-spec ISO 7064 MOD 37-36 complement form:
-    check = CHARSET[(36 - total % 36) % 36].
-    Verified against worked example 27AAPFU0939F1ZV (sum 221 -> V)
-    and unissued checksum-valid vectors 27AAACR5055K1Z7, 00AAACR5055K1ZN.
+    Flow:
+        Fold value*weight, return CHARSET[(36 - total%36) % 36].
+
+    Debug:
+        Must match app.core.businesses.gstin._check_digit. Example 27AAPFU0939F1Z → V.
     """
     total = 0
     for i, ch in enumerate(first14):
@@ -50,7 +58,12 @@ def make_gstin(
 ) -> str:
     """Checksum-valid 15-char GSTIN: state(2) + PAN(10) + entity(1) + Z + check.
 
-    The PAN is embedded at positions 3-12, so GSTIN[2:12] == pan always.
+    Flow:
+        1. pan or make_pan(); state from the weighted list if omitted.
+        2. first14 = state + pan + entity + 'Z'; append _check_digit.
+
+    Debug:
+        GSTIN[2:12] always equals the PAN. Pass the same pan into create_business.
     """
     pan = pan or make_pan()
     state = state_code or _rng.choice(_STATE_CODES)
@@ -59,7 +72,14 @@ def make_gstin(
 
 
 def gstin_checksum_valid(gstin: str) -> bool:
-    """Validate structure + mod-36 checksum digit (independent re-implementation)."""
+    """True when structure and mod-36 complement both match.
+
+    Flow:
+        Regex, recompute check digit, compare to the 15th character.
+
+    Debug:
+        Independent of the app helper so a broken production checksum still fails tests.
+    """
     g = (gstin or "").upper().strip()
     if not _GSTIN_RE.fullmatch(g):
         return False

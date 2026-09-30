@@ -48,6 +48,12 @@ export default function ClientHomePage() {
     };
   }, [router]);
 
+  /**
+   * Drop the in-memory token and role cookie, then go to /login.
+   *
+   * Debug:
+   *   The httpOnly refresh cookie is not cleared here. A later silentRefresh can log the user back in.
+   */
   async function signOut() {
     setAccessToken(null);
     clearSession();

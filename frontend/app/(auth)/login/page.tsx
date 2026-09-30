@@ -26,6 +26,12 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /**
+   * LOGIN OTP request. Shows dev_otp when the API echoes it.
+   *
+   * Flow:
+   *   requestOtp(LOGIN) → store devOtp → stage otp. ApiError message on failure.
+   */
   async function request(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -41,6 +47,16 @@ export default function LoginPage() {
     }
   }
 
+  /**
+   * Verify LOGIN OTP, store the access token, route from /auth/me.
+   *
+   * Flow:
+   *   1. verifyOtp → setAccessToken, clear role cookie.
+   *   2. fetchMe: firm set → /ca, else /app. Then setRoleCookie.
+   *
+   * Debug:
+   *   Stuck on /app after CA firm exists → me.firm was null (ordering/commit).
+   */
   async function verify(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);

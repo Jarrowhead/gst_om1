@@ -19,6 +19,17 @@ Gates (see docs/EXTRACTION_SPEC.md §4):
     G1 mandatory precision >= 0.90
     G2 mandatory recall    >= 0.95
     G3 auto-confirm precision >= 0.99 (over the high-confidence subset)
+
+DEBUGGING QUICK MAP
+-------------------
+  Exit 2  → empty ground_truth/ or predictions/ dir (no *.json)
+  Exit 1  → printed "=== Gates ===" section has at least one FAIL
+  Exit 0  → all active gates PASS
+
+  Per-field table: low recall on a field → missing predictions (pv is None) or wrong values.
+  Auto-confirm n/a → no doc passed doc_eligible (confidence too low on any GT field).
+
+  Compare logic lives in field_equal() + norm_* helpers — breakpoint there for mismatches.
 """
 
 import argparse
@@ -64,7 +75,23 @@ _GSTIN_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]{2}$")
 
 
 def gstin_checksum_valid(g):
-    """Validate a 15-char GSTIN by structure + mod-36 checksum digit."""
+    """Validate a 15-char GSTIN by structure + mod-36 checksum digit.
+
+    Flow:
+        1. Uppercase and strip spaces from input.
+        2. Reject if regex _GSTIN_RE does not match (15-char GSTIN shape).
+        3. For chars 0..13: map to base-36 value, multiply by alternating weight 1/2,
+           add (prod//36 + prod%36) to running total (GSTN checksum algorithm).
+        4. Compare (total % 36) to base-36 index of the 15th checksum character.
+
+    Returns:
+        True if structurally valid and checksum digit matches; False otherwise.
+
+    Debug:
+        - False at step 2 → format issue (wrong length/charset), not checksum math.
+        - False at step 4 → valid format but wrong check digit; use tests/gstin_fixtures.py
+          for the complement form used in production code (this helper is harness-local).
+    """
     g = (g or "").upper().replace(" ", "")
     if not _GSTIN_RE.fullmatch(g):
         return False
@@ -78,12 +105,35 @@ def gstin_checksum_valid(g):
 
 
 def norm_string(s):
+    """Normalize free-text fields for case/punctuation-insensitive comparison.
+
+    Flow:
+        1. None → None (caller treats dual-None as equal in field_equal).
+        2. Uppercase and keep only alphanumeric characters (drops spaces, dashes, etc.).
+
+    Debug:
+        If two invoice numbers look equal but field_equal fails, print norm_string(a/b)
+        to see hidden Unicode or punctuation differences.
+    """
     if s is None:
         return None
     return "".join(c for c in str(s).upper() if c.isalnum())
 
 
 def norm_date(d):
+    """Normalize date strings to ISO YYYY-MM-DD when parseable.
+
+    Flow:
+        1. None → None.
+        2. Split on / - . and drop empty parts; need exactly 3 parts or fall back to upper strip.
+        3. If first part has length 4 → assume Y-M-D order.
+        4. Else assume D-M-Y (common on Indian invoices) and reorder to Y-M-D with zero-pad.
+
+    Debug:
+        Unparseable strings return s.upper() unchanged — mismatches between GT and pred
+        formats (e.g. "04-05-2025" vs "2025-05-04") should still match after step 3/4;
+        if not, check which branch was taken (len(parts[0]) == 4).
+    """
     if d is None:
         return None
     s = str(d).strip()
@@ -98,6 +148,23 @@ def norm_date(d):
 
 
 def field_equal(kind, a, b):
+    """Compare ground-truth value `a` to prediction `b` using field-type rules.
+
+    Flow:
+        1. If either side is None → equal only when both are None (missing vs value ≠).
+        2. Dispatch on `kind`:
+           - gstin/string → norm_string equality
+           - date → norm_date equality
+           - bool → bool() coercion
+           - enum → strip/upper string match
+           - paise → int() equality (TypeError/ValueError → False)
+        3. Unknown kind → plain str equality (should not occur for MANDATORY_FIELDS).
+
+    Debug:
+        Set a breakpoint when gv is not None and not ok in main()'s doc loop;
+        log kind, a, b, and normalized forms. Most filing errors are paise int drift
+        or GSTIN normalization.
+    """
     if a is None or b is None:
         return (a is None) and (b is None)
     if kind in ("gstin", "string"):
@@ -117,6 +184,19 @@ def field_equal(kind, a, b):
 
 
 def load_json_dir(d):
+    """Load all *.json files in directory `d` into a dict keyed by doc_id.
+
+    Flow:
+        1. Sorted glob of *.json (deterministic iteration order for reproducible prints).
+        2. json.load each file; index by doc["doc_id"] (KeyError if missing — surfaces bad fixture).
+
+    Returns:
+        dict[str, dict] mapping doc_id → parsed JSON object.
+
+    Debug:
+        Duplicate doc_id in two files → later file wins silently; check sorted glob order.
+        Empty dict → main exits 2 with "no ground-truth/prediction files found".
+    """
     out = {}
     for f in sorted(Path(d).glob("*.json")):
         with open(f, "r", encoding="utf-8") as fh:
@@ -126,6 +206,35 @@ def load_json_dir(d):
 
 
 def main(argv=None):
+    """CLI entry: score predictions vs ground truth and enforce G1/G2/G3 gates.
+
+    Flow:
+        1. Parse CLI: --ground-truth, --predictions, optional --thresholds JSON overlay.
+        2. Merge thresholds with DEFAULT_THRESHOLDS.
+        3. load_json_dir both sides; abort exit 2 if either side empty.
+        4. Compute doc_id sets:
+           - doc_ids = intersection (only scored pairs)
+           - missing_gt / missing_pred → WARN only (do not fail gates)
+        5. For each doc_id in intersection:
+           a. Read gf/pf from fields sub-object (or root legacy shape).
+           b. Read confidence map and capture_source from ground truth.
+           c. For each mandatory field: update tp/pred/gt counts; track doc_has_error.
+           d. doc_eligible for G3 if every GT-present field has pred + conf >= source threshold.
+           e. If eligible, increment auto_docs; if eligible and doc_has_error, auto_errors++.
+        6. Print per-field prec/rec/F1 table and aggregate mandatory prec/rec.
+        7. Print auto-confirm stats (precision = (auto_docs - auto_errors) / auto_docs).
+        8. Evaluate gates: mandatory_precision, mandatory_recall, optional auto_confirm_precision.
+        9. Return 1 if any gate FAIL else 0.
+
+    Returns:
+        int exit code for sys.exit (0 pass, 1 gate fail, 2 input error).
+
+    Debug:
+        - G2 recall fail, high precision → many pv is None (extractor omitted fields).
+        - G1 precision fail → wrong values where pv is not None.
+        - G3 skipped message → auto_docs == 0; lower conf in predictions or missing confidence keys.
+        - Intersection empty but both dirs non-empty → doc_id mismatch between GT and pred filenames/JSON.
+    """
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ground-truth", required=True)
@@ -159,6 +268,7 @@ def main(argv=None):
     auto_docs = 0
     auto_errors = 0
 
+    # ── Per-document scoring loop (micro-averages aggregated across all field instances) ──
     for did in doc_ids:
         g = gt[did]
         p = pred[did]

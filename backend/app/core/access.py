@@ -88,10 +88,16 @@ class RegistrationAccess:
 async def resolve_business_access(
     session: AsyncSession, user_id: uuid.UUID, business_id: uuid.UUID
 ) -> BusinessAccess:
-    """User -> business access chain (SECURITY §2). Raises AccessDenied.
+    """User -> business access chain (SECURITY §2). Raises AccessDenied (404).
 
-    Chain 1 (client): business_users row with role OWNER/CLERK.
-    Chain 2 (firm):   ca_firm_member -> ACTIVE ca_client_link -> business.
+    Flow:
+        1. business_users row for (business, user) → client access, all permission bits True.
+        2. Else each ca_firm_members row: ACTIVE ca_client_link for that firm+business.
+        3. First link wins; permissions copied from the member.
+        4. No match → AccessDenied (same 404 as unknown id).
+
+    Debug:
+        PENDING/REVOKED links are ignored (status must be ACTIVE). 403 is not raised here.
     """
     # --- client chain -----------------------------------------------------
     bu = (
@@ -146,7 +152,16 @@ async def resolve_business_access(
 async def resolve_registration_access(
     session: AsyncSession, user_id: uuid.UUID, registration_id: uuid.UUID
 ) -> RegistrationAccess:
-    """Every filing object resolves through registration -> business (§2)."""
+    """Every filing object resolves through registration -> business (§2).
+
+    Flow:
+        1. Load GstRegistration; missing → AccessDenied (do not say 'not found' differently).
+        2. resolve_business_access on reg.business_id.
+        3. Return RegistrationAccess with gstin + nested BusinessAccess.
+
+    Debug:
+        404 on a real GSTIN the user does not belong to is intentional (existence is data).
+    """
     reg = await session.get(GstRegistration, registration_id)
     if reg is None:
         raise AccessDenied("no access to this registration")
@@ -162,13 +177,25 @@ async def resolve_registration_access(
 def require_business_access(
     business_id_param: str = "business_id",
 ) -> Any:
-    """Dependency factory: guard a route by business_id (path param name)."""
+    """Dependency factory: guard a route by business_id (path param name).
+
+    Flow:
+        Returned _guard reads path param, parses UUID (bad UUID → 404), then resolve_business_access.
+
+    Debug:
+        Param name must match the route (`business_id`). Missing param → UUID('') → 404.
+    """
 
     async def _guard(
         request: Request,
         session: Annotated[AsyncSession, Depends(get_session)],
         user_id: Annotated[uuid.UUID, Depends(require_user)],
     ) -> BusinessAccess:
+        """FastAPI dependency: bearer user must reach this business or 404.
+
+        Flow:
+            path param → UUID → resolve_business_access.
+        """
         raw = request.path_params.get(business_id_param)
         try:
             bid = uuid.UUID(str(raw))
@@ -182,13 +209,25 @@ def require_business_access(
 def require_registration_access(
     registration_id_param: str = "registration_id",
 ) -> Any:
-    """Dependency factory: guard a route by registration_id (path param name)."""
+    """Dependency factory: guard a route by registration_id (path param name).
+
+    Flow:
+        Returned _guard parses the path UUID then resolve_registration_access.
+
+    Debug:
+        Same 404 for bad UUID, missing row, and wrong tenant.
+    """
 
     async def _guard(
         request: Request,
         session: Annotated[AsyncSession, Depends(get_session)],
         user_id: Annotated[uuid.UUID, Depends(require_user)],
     ) -> RegistrationAccess:
+        """FastAPI dependency: bearer user must reach this registration or 404.
+
+        Flow:
+            path param → UUID → resolve_registration_access (registration then business).
+        """
         raw = request.path_params.get(registration_id_param)
         try:
             rid = uuid.UUID(str(raw))
@@ -211,6 +250,7 @@ class AuditWriter:
     """
 
     def __init__(self, session: AsyncSession) -> None:
+        """Bind the writer to the caller's session so audit + action commit together."""
         self._session = session
 
     async def log(
@@ -225,7 +265,14 @@ class AuditWriter:
         registration_id: uuid.UUID | None = None,
         payload_diff: dict[str, Any] | None = None,
     ) -> None:
-        """Insert one audit row (never updates)."""
+        """Insert one audit row (never updates).
+
+        Flow:
+            Add AuditLog and flush. No commit — caller commits.
+
+        Debug:
+            UPDATE/DELETE on audit_logs fails at the DB role gst_app (INSERT-only).
+        """
         from app.db.models.core import AuditLog
 
         self._session.add(
@@ -255,7 +302,14 @@ async def audit(
     registration_id: uuid.UUID | None = None,
     payload_diff: dict[str, Any] | None = None,
 ) -> None:
-    """One-call append-only audit insert bound to the request session."""
+    """One-call append-only audit insert bound to the request session.
+
+    Flow:
+        AuditWriter(session).log(...) — flush only.
+
+    Debug:
+        Row missing after a 500 → the request rolled back the same session.
+    """
     writer = AuditWriter(session)
     await writer.log(
         action=action,

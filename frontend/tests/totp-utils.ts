@@ -4,6 +4,16 @@
  */
 import crypto from "node:crypto";
 
+/**
+ * Decode a base32 TOTP secret to bytes (RFC 4648, ignore padding and bad chars).
+ *
+ * Flow:
+ *   1. Strip trailing '=' and uppercase.
+ *   2. Accumulate 5-bit indexes; emit a byte whenever 8 bits are ready.
+ *
+ * Debug:
+ *   Empty output → secret had no valid alphabet characters.
+ */
 function base32Decode(input: string): Buffer {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = 0;
@@ -22,6 +32,17 @@ function base32Decode(input: string): Buffer {
   return Buffer.from(out);
 }
 
+/**
+ * 6-digit TOTP for E2E. SHA-1, 30s step, optional window offset.
+ *
+ * Flow:
+ *   1. counter = floor(time/30) + window.
+ *   2. HMAC-SHA1 of the 8-byte counter with the decoded secret.
+ *   3. Dynamic truncation, mod 1_000_000, zero-pad.
+ *
+ * Debug:
+ *   Backend valid_window is ±1. If verify fails, retry with window -1 or +1 near the boundary.
+ */
 export function totpCode(secret: string, forTime = Date.now(), window = 0): string {
   const counter = Math.floor(forTime / 1000 / 30) + window;
   const buf = Buffer.alloc(8);

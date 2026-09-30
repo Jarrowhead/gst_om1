@@ -35,7 +35,14 @@ SessionMaker = async_sessionmaker[Any]
 
 @pytest.fixture()
 def fake_redis() -> fakeredis.aioredis.FakeRedis:
-    """Fresh fakeredis per test; injected as the app's Redis client."""
+    """Fresh fakeredis per test; injected as the app's Redis client.
+
+    Flow:
+        FakeRedis(decode_responses=True) then redis_client.set_client.
+
+    Debug:
+        OTP/refresh state leaking across tests means this fixture was not requested.
+    """
     client = fakeredis.aioredis.FakeRedis(decode_responses=True)
     redis_client_mod.set_client(client)
     return client
@@ -43,6 +50,11 @@ def fake_redis() -> fakeredis.aioredis.FakeRedis:
 
 @pytest_asyncio.fixture()
 async def api_sessionmaker() -> AsyncGenerator[SessionMaker, None]:
+    """Async session factory on the live gst_filing_db. Disposes the engine after the test.
+
+    Debug:
+        Connection errors → bootstrap_stack.py and PG :5436.
+    """
     engine = create_async_engine(TEST_DB_URL)
     yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()
@@ -53,7 +65,16 @@ async def client(
     fake_redis: fakeredis.aioredis.FakeRedis,
     api_sessionmaker: SessionMaker,
 ) -> AsyncGenerator[AsyncClient, None]:
-    """ASGI client wired to the real app + live PG + fakeredis."""
+    """ASGI client wired to the real app + live PG + fakeredis.
+
+    Flow:
+        1. create_app and override get_session with api_sessionmaker.
+        2. Yield httpx AsyncClient on ASGITransport.
+        3. Clear the redis client so the next test does not keep fakeredis.
+
+    Debug:
+        500s here are real app bugs. Routes still need PG tables from Alembic.
+    """
     from app.db.session import get_session
 
     app = create_app()
@@ -72,7 +93,14 @@ async def client(
 async def make_user(
     sessionmaker: SessionMaker, mobile: str | None = None, email: str | None = None
 ) -> User:
-    """Seed a user row directly (no OTP round-trip needed for /me etc.)."""
+    """Seed a user row directly (no OTP round-trip).
+
+    Flow:
+        Insert User with the given mobile/email, commit, refresh, return the row.
+
+    Debug:
+        mobile default is 9 + 9 hex chars so it passes the 10-13 digit identifier rule.
+    """
     async with sessionmaker() as session:
         user = User(
             mobile=mobile or "9" + uuid4hex(),
@@ -86,14 +114,27 @@ async def make_user(
 
 
 def uuid4hex() -> str:
-    """9-digit-safe mobile suffix (import kept local for module hygiene)."""
+    """Nine hex chars from uuid4, used as a unique mobile suffix.
+
+    Debug:
+        Not a full UUID. Collisions are unlikely but possible if sliced too short in a loop.
+    """
     import uuid
 
     return uuid.uuid4().hex[:9]
 
 
 async def register_and_login(client: AsyncClient, mobile: str) -> dict[str, Any]:
-    """Full OTP journey: request (dev echo) -> verify -> token pair."""
+    """Full OTP journey: request (dev echo) → verify → token pair in the envelope data.
+
+    Flow:
+        1. POST otp/request purpose REGISTER.
+        2. Assert dev_otp is present (GST dev mode).
+        3. POST otp/verify and return data (user, access_token, refresh_token).
+
+    Debug:
+        Missing dev_otp → settings.dev_mode is false. 401 on verify → OTP key was consumed.
+    """
     req = await client.post(
         "/api/v1/auth/otp/request",
         json={"identifier": mobile, "purpose": "REGISTER"},
@@ -111,7 +152,11 @@ async def register_and_login(client: AsyncClient, mobile: str) -> dict[str, Any]
 
 
 def redis_view(fake_redis: fakeredis.aioredis.FakeRedis) -> Redis:
-    """Typing shim: fakeredis client used through the async API."""
+    """Typing shim so tests can pass fakeredis where Redis is annotated.
+
+    Debug:
+        No runtime conversion. If a method is missing, the fakeredis version is too old.
+    """
     return fake_redis
 
 

@@ -34,6 +34,15 @@ export default function TotpPage() {
     }
   }, [stage, qrUri]);
 
+  /**
+   * POST /auth/totp/setup and show the QR stage.
+   *
+   * Flow:
+   *   totpSetup → secret + qr_uri → stage verify. Canvas draw is a separate effect.
+   *
+   * Debug:
+   *   409 means TOTP was already enabled for this user.
+   */
   async function begin(e: React.MouseEvent<HTMLButtonElement>) {
     e.preventDefault();
     setBusy(true);
@@ -50,6 +59,12 @@ export default function TotpPage() {
     }
   }
 
+  /**
+   * POST /auth/totp/verify. Success moves to the firm form.
+   *
+   * Debug:
+   *   invalid TOTP code near a 30s boundary — generate a fresh code and retry.
+   */
   async function verify(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -64,6 +79,15 @@ export default function TotpPage() {
     }
   }
 
+  /**
+   * POST /firm then open the CA shell.
+   *
+   * Flow:
+   *   createFirm → setRoleCookie CA → /ca.
+   *
+   * Debug:
+   *   TOTP_REQUIRED means verify() did not set totp_enabled_at. 409 is a PAN conflict.
+   */
   async function createTheFirm(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);

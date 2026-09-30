@@ -23,6 +23,15 @@ export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
 
+  /**
+   * Error thrown when the envelope is success:false or the body is not JSON.
+   *
+   * Flow:
+   *   Stores code, message, HTTP status. apiFetch may retry once on 401.
+   *
+   * Debug:
+   *   code NETWORK_ERROR means res.json() failed. Other codes come from the API.
+   */
   constructor(code: string, message: string, status: number) {
     super(message);
     this.name = "ApiError";
@@ -75,14 +84,34 @@ export interface FirmCreateResult {
 let accessToken: string | null = null;
 let refreshPromise: Promise<boolean> | null = null;
 
+/**
+ * Keep the access JWT in module memory (not localStorage).
+ *
+ * Debug:
+ *   A full page reload drops it; shells call silentRefresh() first.
+ */
 export function setAccessToken(token: string | null): void {
   accessToken = token;
 }
 
+/** True when an access JWT is currently in memory. */
 export function hasAccessToken(): boolean {
   return accessToken !== null;
 }
 
+/**
+ * Fetch /api/v1{path}, unwrap {success,data}, retry once after refresh on 401.
+ *
+ * Flow:
+ *   1. Attach Bearer if accessToken is set; JSON content-type when there is a body.
+ *   2. credentials include so the refresh cookie is sent.
+ *   3. success true → return data.
+ *   4. 401 with a token and allowRefreshRetry → refreshTokens then one retry.
+ *   5. Otherwise throw ApiError.
+ *
+ * Debug:
+ *   Second 401 is not retried (allowRefreshRetry false). Cookie path must be /api/v1/auth.
+ */
 export async function apiFetch<T>(
   path: string,
   init: RequestInit = {},
@@ -121,7 +150,17 @@ export async function apiFetch<T>(
   throw apiErr;
 }
 
-/** Silent refresh via the backend's httpOnly cookie (no token in storage). */
+/**
+ * POST /auth/refresh using only the httpOnly cookie. Updates accessToken.
+ *
+ * Flow:
+ *   1. POST {} with credentials include.
+ *   2. success → store access_token.
+ *   3. Else clear accessToken and throw ApiError.
+ *
+ * Debug:
+ *   REFRESH_REUSE_DETECTED means an old refresh cookie was replayed; user must log in.
+ */
 async function refreshTokens(): Promise<void> {
   const res = await fetch(`${API_BASE}/auth/refresh`, {
     method: "POST",
@@ -145,6 +184,15 @@ async function refreshTokens(): Promise<void> {
   );
 }
 
+/**
+ * Single-flight refresh used on shell load. Returns true if an access token exists after.
+ *
+ * Flow:
+ *   Reuse refreshPromise if a refresh is already running. Always clear it in finally.
+ *
+ * Debug:
+ *   false → cookie missing or family killed. Do not treat the role cookie as logged-in.
+ */
 export async function silentRefresh(): Promise<boolean> {
   if (refreshPromise !== null) {
     return refreshPromise;
@@ -162,6 +210,7 @@ export async function silentRefresh(): Promise<boolean> {
   return refreshPromise;
 }
 
+/** POST /auth/otp/request. purpose REGISTER or LOGIN. Dev mode may return dev_otp. */
 export async function requestOtp(
   identifier: string,
   purpose: "LOGIN" | "REGISTER",
@@ -172,6 +221,7 @@ export async function requestOtp(
   });
 }
 
+/** POST /auth/otp/verify. Caller must setAccessToken from the returned access_token. */
 export async function verifyOtp(
   identifier: string,
   otp: string,
@@ -182,14 +232,17 @@ export async function verifyOtp(
   });
 }
 
+/** GET /auth/me. Needs a bearer token. firm null means client shell. */
 export async function fetchMe(): Promise<MeDto> {
   return apiFetch("/auth/me");
 }
 
+/** POST /auth/totp/setup. Returns secret and otpauth qr_uri. 409 if already enabled. */
 export async function totpSetup(): Promise<TotpSetupResult> {
   return apiFetch("/auth/totp/setup", { method: "POST" });
 }
 
+/** POST /auth/totp/verify. Sets totp_enabled_at when the 6-digit code matches. */
 export async function totpVerify(code: string): Promise<TotpVerifyResult> {
   return apiFetch("/auth/totp/verify", {
     method: "POST",
@@ -197,6 +250,7 @@ export async function totpVerify(code: string): Promise<TotpVerifyResult> {
   });
 }
 
+/** POST /firm. Requires TOTP already enabled or the API returns TOTP_REQUIRED. */
 export async function createFirm(
   firmName: string,
   pan: string,

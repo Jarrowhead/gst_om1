@@ -16,7 +16,17 @@ from app.db.models.core import CaFirm, CaFirmMember, FirmRole, User
 async def create_firm(
     session: AsyncSession, user_id: uuid.UUID, firm_name: str, pan: str
 ) -> dict[str, object]:
-    """POST /firm — create firm + PARTNER membership; requires TOTP enabled."""
+    """POST /firm — create firm + PARTNER membership; requires TOTP enabled.
+
+    Flow:
+        1. Unknown user → 401. TOTP not enabled → 403 TOTP_REQUIRED.
+        2. validate_pan. ca_code = CAF- + 12 hex chars.
+        3. Insert CaFirm, flush, insert PARTNER member with all permission bits.
+        4. Commit; IntegrityError → 409.
+
+    Debug:
+        403 before any row is written. Duplicate PAN hits the unique constraint on commit.
+    """
     user = await session.get(User, user_id)
     if user is None:
         raise ServiceError("unknown user", 401, "INVALID_CREDENTIALS")

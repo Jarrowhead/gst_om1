@@ -31,6 +31,14 @@ app_db_base.all_models()
 
 
 def _pg_available() -> bool:
+    """True when gst_filing_db accepts a sync SELECT 1.
+
+    Flow:
+        create_engine on GST_DATABASE_URL, SELECT 1, dispose. Any exception → False.
+
+    Debug:
+        False skips tests marked requires_pg. Start scripts/bootstrap_stack.py.
+    """
     from sqlalchemy import create_engine, text
 
     url = os.environ["GST_DATABASE_URL"].replace("+asyncpg", "+psycopg")
@@ -50,7 +58,16 @@ requires_pg = pytest.mark.skipif(not PG_AVAILABLE, reason="PG:5436 not reachable
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    """Reap gst_mig_test_* scratch DBs stranded by crashed runs (tester MUST-FIX)."""
+    """Drop leftover gst_mig_test_* databases from crashed migration tests.
+
+    Flow:
+        1. Connect to the postgres maintenance DB.
+        2. Terminate backends on each matching database, then DROP DATABASE.
+        3. Swallow all errors so a missing server does not fail collection.
+
+    Debug:
+        Orphan DBs after a killed pytest mean this hook did not run or DROP was denied.
+    """
     try:
         from sqlalchemy import create_engine, text
 

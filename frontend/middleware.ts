@@ -8,14 +8,38 @@ import { NextRequest, NextResponse } from "next/server";
 const PUBLIC_PATHS = ["/login", "/register", "/totp"];
 const ONBOARDING_PATHS = ["/totp"]; // TOTP setup must stay reachable during CA onboarding
 
+/**
+ * True for /login, /register, /totp (and nested paths).
+ *
+ * Debug:
+ *   A new public page must be added to PUBLIC_PATHS or guests get sent to login.
+ */
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
+/**
+ * True for paths that stay reachable after a role cookie exists (/totp).
+ *
+ * Debug:
+ *   Without this, a CA mid-setup is bounced from /totp to /.
+ */
 function isOnboarding(pathname: string): boolean {
   return ONBOARDING_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
+/**
+ * Route by gst_role cookie. Does not check the access token.
+ *
+ * Flow:
+ *   1. Public path + role cookie + not onboarding → redirect /.
+ *   2. Public path otherwise → next.
+ *   3. No role cookie → /login?next=<path>.
+ *   4. Role present → next. Shell pages re-check the session.
+ *
+ * Debug:
+ *   Loop between / and /login → cookie set but shell silentRefresh failed.
+ */
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const role = request.cookies.get("gst_role")?.value ?? null;

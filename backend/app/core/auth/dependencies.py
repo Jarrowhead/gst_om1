@@ -33,7 +33,14 @@ async def require_user(
         HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
     ],
 ) -> uuid.UUID:
-    """Strict auth: a valid Bearer access token is required."""
+    """Strict auth: a valid Bearer access token is required.
+
+    Flow:
+        Missing credentials → TokenInvalid. Else verify_access_token → user UUID.
+
+    Debug:
+        401 missing bearer token vs invalid access token distinguishes header absence from bad JWT.
+    """
     if credentials is None:
         raise TokenInvalid("missing bearer token")
     return verify_access_token(credentials.credentials)
@@ -44,7 +51,14 @@ async def optional_user(
         HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
     ],
 ) -> uuid.UUID | None:
-    """Lenient auth: None when unauthenticated (public endpoints)."""
+    """Lenient auth: None when unauthenticated (public endpoints).
+
+    Flow:
+        No header → None. Bad token → None (swallows TokenInvalid). Valid → user UUID.
+
+    Debug:
+        Do not use this on tenant routes; a bad token looks the same as logged-out.
+    """
     if credentials is None:
         return None
     try:
@@ -60,8 +74,14 @@ async def require_stepup(
 ) -> uuid.UUID:
     """Step-up proof for sensitive routes (SECURITY §1 step-up list).
 
-    Accepts X-Stepup-Token (live step-up JWT) or X-OTP (fresh OTP, verified
-    against Redis — same single-use semantics as login).
+    Flow:
+        1. X-Stepup-Token: verify JWT and require sub == bearer user_id.
+        2. Else X-OTP: load user, verify_otp against email or mobile (consumes OTP).
+        3. Neither header → StepUpRequired.
+
+    Debug:
+        Token for a different user → 'does not match the bearer identity'. OTP path uses
+        email or mobile only, not the dual-peek logic in service.stepup.
     """
     stepup_header = request.headers.get("X-Stepup-Token")
     if stepup_header:

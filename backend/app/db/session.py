@@ -36,7 +36,16 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 
 def get_engine() -> AsyncEngine:
-    """Lazily create the process-wide async engine."""
+    """Lazily create the process-wide async engine.
+
+    Flow:
+        First call: create_async_engine(ASYNC_URL, pool_pre_ping) and bind sessionmaker.
+        Later calls return the same engine.
+
+    Debug:
+        Connection refused → GST_DATABASE_ASYNC_URL or bootstrap PG :5436. Tests set env
+        before import via conftest.
+    """
     global _engine, _sessionmaker
     if _engine is None:
         _engine = create_async_engine(ASYNC_URL, pool_pre_ping=True)
@@ -45,13 +54,28 @@ def get_engine() -> AsyncEngine:
 
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
-    """Session factory bound to the process-wide engine."""
+    """Session factory bound to the process-wide engine.
+
+    Flow:
+        get_engine() then return _sessionmaker (asserted non-None).
+
+    Debug:
+        expire_on_commit=False so route handlers can read attributes after commit.
+    """
     get_engine()
     assert _sessionmaker is not None
     return _sessionmaker
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
-    """FastAPI dependency: one session per request."""
+    """FastAPI dependency: one session per request.
+
+    Flow:
+        async with sessionmaker() as session: yield. Closes when the request ends.
+
+    Debug:
+        Uncommitted work disappears at request end. Services that commit internally
+        (create_business) do not rely on the dependency to commit.
+    """
     async with get_sessionmaker()() as session:
         yield session

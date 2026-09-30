@@ -53,6 +53,14 @@ async def create_business(
     session: SessionDep,
     user_id: UserDep,
 ) -> dict[str, Any]:
+    """POST /businesses. Creates the business and an OWNER membership for the caller.
+
+    Flow:
+        service.create_business → BusinessOut envelope.
+
+    Debug:
+        409 CONFLICT if PAN exists. 422 if PAN format fails inside the service.
+    """
     business = await service.create_business(
         session,
         legal_name=body.legal_name,
@@ -74,6 +82,11 @@ async def create_business(
 
 @router.get("")
 async def list_businesses(session: SessionDep, user_id: UserDep) -> dict[str, Any]:
+    """GET /businesses. Client memberships only (not CA links).
+
+    Flow:
+        service.list_my_businesses for the bearer user.
+    """
     return {"success": True, "data": await service.list_my_businesses(session, user_id)}
 
 
@@ -82,6 +95,14 @@ async def get_business(
     access: Annotated[BusinessAccess, Depends(require_business_access("business_id"))],
     session: SessionDep,
 ) -> dict[str, Any]:
+    """GET /businesses/{id}. Guard runs before the handler.
+
+    Flow:
+        require_business_access → get_business_detail.
+
+    Debug:
+        404 BUSINESS_NOT_FOUND means no client row and no ACTIVE firm link.
+    """
     detail = await service.get_business_detail(session, access.business_id)
     return {"success": True, "data": detail}
 
@@ -92,6 +113,11 @@ async def patch_business(
     access: Annotated[BusinessAccess, Depends(require_business_access("business_id"))],
     session: SessionDep,
 ) -> dict[str, Any]:
+    """PATCH /businesses/{id}. Guarded. legal_name and trade_name only.
+
+    Flow:
+        service.update_business using the guarded business_id (not a body id).
+    """
     business = await service.update_business(
         session,
         access.business_id,
@@ -116,6 +142,11 @@ async def create_registration(
     access: Annotated[BusinessAccess, Depends(require_business_access("business_id"))],
     session: SessionDep,
 ) -> dict[str, Any]:
+    """POST /businesses/{id}/registrations. Guarded. Validates GSTIN against business PAN.
+
+    Flow:
+        Default filing scheme REGULAR_MONTHLY unless body sets one. service.create_registration.
+    """
     scheme = FilingScheme.REGULAR_MONTHLY
     if body.filing_scheme:
         scheme = FilingScheme(body.filing_scheme)
@@ -135,6 +166,14 @@ async def get_registration(
     access: Annotated[RegistrationAccess, Depends(require_registration_access("registration_id"))],
     session: SessionDep,
 ) -> dict[str, Any]:
+    """GET /registrations/{id}. Guarded via registration → business.
+
+    Flow:
+        Reload row; missing → RegistrationNotFound; else _reg_out.
+
+    Debug:
+        Cross-tenant callers never reach this body (404 from the dependency).
+    """
     reg = await session.get(GstRegistration, access.registration_id)
     if reg is None:
         raise service.RegistrationNotFound("no access to this registration")
@@ -147,6 +186,11 @@ async def patch_registration(
     access: Annotated[RegistrationAccess, Depends(require_registration_access("registration_id"))],
     session: SessionDep,
 ) -> dict[str, Any]:
+    """PATCH /registrations/{id}. Guarded. Address, AATO, and scheme only.
+
+    Flow:
+        Parse filing_scheme if present, then service.update_registration.
+    """
     scheme = FilingScheme(body.filing_scheme) if body.filing_scheme else None
     reg = await service.update_registration(
         session,
@@ -159,6 +203,14 @@ async def patch_registration(
 
 
 def _reg_out(reg: GstRegistration) -> dict[str, Any]:
+    """Serialize a GstRegistration through the RegistrationOut schema.
+
+    Flow:
+        Build RegistrationOut and model_dump (includes irn_applicable and paise AATO).
+
+    Debug:
+        filing_scheme is the enum .value string, not the enum object.
+    """
     return RegistrationOut(
         id=str(reg.id),
         business_id=str(reg.business_id),

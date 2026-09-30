@@ -60,7 +60,14 @@ UV_EXE = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "bin" / "uv.exe"
 
 
 def _alembic(*args: str) -> int:
-    """Run alembic CLI via uv in a subprocess (fresh interpreter, no loop)."""
+    """Run alembic CLI via uv in a subprocess (fresh interpreter, no event loop).
+
+    Flow:
+        uv run alembic <args> with cwd backend. Non-zero → pytest.fail with output.
+
+    Debug:
+        Missing uv.exe under LOCALAPPDATA/hermes/bin fails before Alembic starts.
+    """
     proc = subprocess.run(
         [str(UV_EXE), "run", "alembic", *args],
         cwd=BACKEND_DIR,
@@ -74,7 +81,11 @@ def _alembic(*args: str) -> int:
 
 
 def _table_counts_by_schema() -> dict[str, int]:
-    """Query live PG via the app's sync URL (no alembic, direct catalog)."""
+    """Count tables per schema from pg_catalog on the live dev database.
+
+    Debug:
+        Zero counts mean Alembic has not been applied to gst_filing_db.
+    """
     import os
 
     from sqlalchemy import create_engine, text
@@ -96,6 +107,11 @@ def _table_counts_by_schema() -> dict[str, int]:
 
 
 def _tables_in_schema(schema: str) -> set[str]:
+    """Set of table names in one schema (core, gst, or extraction).
+
+    Debug:
+        Compare against EXPECTED sets in this file when a model is added.
+    """
     import os
 
     from sqlalchemy import create_engine, text

@@ -30,7 +30,12 @@ class Base(DeclarativeBase):
 def all_models() -> list[ModuleType]:
     """Import every model module so its tables register on Base.metadata.
 
-    Call this before alembic autogenerate or create_all.
+    Flow:
+        1. Import core, extraction, gst (side effect: tables on Base.metadata).
+        2. Return the modules.
+
+    Debug:
+        Alembic missing a table → model not imported here. Call before autogenerate/create_all.
     """
     from app.db.models import core, extraction, gst  # noqa: F401
 

@@ -26,6 +26,17 @@ Handler = Callable[[Request, Exception], Awaitable[JSONResponse]]
 
 
 def create_app() -> FastAPI:
+    """Build the FastAPI app: routers, error envelopes, health check.
+
+    Flow:
+        1. Include auth, business, registration, and firm routers under /api/v1.
+        2. Register handlers: AuthError, validation, ServiceError, HTTPException, ValueError.
+        3. GET /api/v1/health returns {status: ok}.
+        4. Any other Exception → 500 INTERNAL_ERROR (detail hidden).
+
+    Debug:
+        Unexpected 500 with generic message → look at server logs; the body will not include the traceback.
+    """
     app = FastAPI(title="GST Filing Platform API", version="0.1.0")
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(business_router, prefix="/api/v1")
@@ -47,9 +58,22 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/health")
     async def health() -> dict[str, object]:
+        """Liveness probe. Does not check Postgres, Redis, or MinIO.
+
+        Debug:
+            200 here with failing logins usually means Redis :6380 or PG :5436 is down.
+        """
         return {"success": True, "data": {"status": "ok"}}
 
     async def unhandled(request: Request, exc: Exception) -> JSONResponse:
+        """Last-resort handler. Hides exception text from the client.
+
+        Flow:
+            Always 500 INTERNAL_ERROR. Request and exception are discarded.
+
+        Debug:
+            The real exception is not logged here — add a log if 500s are opaque.
+        """
         _ = request, exc
         return JSONResponse(
             status_code=500,

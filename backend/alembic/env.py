@@ -30,7 +30,14 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    """Emit SQL to stdout without a DB connection."""
+    """Emit SQL to stdout without a DB connection.
+
+    Flow:
+        Read sqlalchemy.url, configure Alembic with literal binds, run_migrations.
+
+    Debug:
+        Used by `alembic upgrade --sql`. Scratch-DB tests use the online path instead.
+    """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
@@ -46,6 +53,14 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    """Run migrations on an open connection. Version table stays in public.
+
+    Flow:
+        configure(include_schemas=False, version_table_schema=public) then run_migrations.
+
+    Debug:
+        alembic_version in schema gst means this pin was bypassed. Search path $user is why.
+    """
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
@@ -65,6 +80,14 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
+    """Open a NullPool async engine and run do_run_migrations inside run_sync.
+
+    Flow:
+        engine from ini URL → connect → run_sync(do_run_migrations) → dispose.
+
+    Debug:
+        Tests override the URL on the Alembic Config before env.py runs.
+    """
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -78,6 +101,12 @@ async def run_async_migrations() -> None:
 
 
 def run_migrations_online() -> None:
+    """Entrypoint for a real database: asyncio.run(run_async_migrations).
+
+    Debug:
+        Windows needs the selector loop policy (tests set it). Nested asyncio.run fails
+        if this is called from an already-running loop.
+    """
     asyncio.run(run_async_migrations())
 
 
