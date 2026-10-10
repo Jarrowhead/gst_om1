@@ -2,8 +2,16 @@
 
 Ingests a Tally/Busy/Zoho spreadsheet of invoices into
 `extraction.invoice_drafts` — the same draft table the OCR pipeline writes to,
-so a spreadsheet row and a scanned invoice are reviewed and confirmed by one
-code path downstream.
+with the same payload shape and the same EXTRACTION_SPEC §6 validator applied,
+so an imported row carries the same flags, derived fields and duplicate
+detection as a scanned one.
+
+Downstream reachability (honest status): the shipped review/confirm path is
+*document*-scoped (`/documents/{docId}/{draft,confirm}` → Document →
+ExtractionJob → InvoiceDraft), and a spreadsheet row has no document and no
+extraction job — so an imported draft is not yet listed by the review queue and
+not yet confirmable through it. This module only ingests; wiring imported drafts
+into review/batch-confirm is the next task's surface (PHASE11_13 rec 2, 11.2).
 
 Why `extraction_job_id` is NULL for these rows: a spreadsheet is *already*
 structured data. There is no document to preprocess, no OCR text and no LLM

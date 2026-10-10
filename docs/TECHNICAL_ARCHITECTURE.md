@@ -111,7 +111,7 @@ Phase 4: GSP adapter → GSTN · IRP adapter → NIC (sandbox in Phase 1)
 |---|---|---|
 | `documents` | id, gstin FK→gst_accounts, fp, capture_source (PDF_SCAN/DIGITAL/PHOTO/WHATSAPP), doc_type, minio_key, sha256, bytes, page_count, uploaded_by, uploaded_at | Immutable; sha256 dedupe; `capture_source` routes preprocessing; scoped directly by GSTIN |
 | `extraction_jobs` | id, document_id, status (QUEUED/PREPROCESS/OCR_RUNNING/LLM_RUNNING/EXTRACTED/FAILED/NEEDS_REVIEW/CONFIRMED), preproc_report (JSONB), ocr_text_ref, raw_llm_output (JSONB), llm_model, llm_tokens_in/out, confidence_avg, error, timestamps | Durable truth; Redis holds job IDs only |
-| `invoice_drafts` | id, extraction_job_id, gstin FK→gst_accounts, fp, payload (JSONB), field_confidence (JSONB) | LLM output pre-confirmation; never mixes with ledger |
+| `invoice_drafts` | id, extraction_job_id (nullable — NULL for a bulk-imported row), gstin FK→gst_accounts, fp, source (`EXTRACTION`\|`BULK_IMPORT`), payload (JSONB), field_confidence (JSONB) | Draft pre-confirmation; never mixes with ledger. `source` separates OCR-produced drafts from Excel/CSV-imported ones (task 11.1) |
 
 ### `gst` schema
 

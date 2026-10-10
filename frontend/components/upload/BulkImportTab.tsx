@@ -18,7 +18,6 @@
  * rendered here comes from the backend report — no client-side status
  * invention.
  */
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { ApiError, BulkImportReport, bulkImport } from "@/lib/api/client";
@@ -44,7 +43,6 @@ function stepLabel(step: Step): string {
 }
 
 export function BulkImportTab({ gstin, fp }: { gstin: string; fp: string }) {
-  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [step, setStep] = useState<Step>("IDLE");
   const [report, setReport] = useState<BulkImportReport | null>(null);
@@ -315,14 +313,17 @@ export function BulkImportTab({ gstin, fp }: { gstin: string; fp: string }) {
               </table>
 
               {report.imported > 0 && (
-                <button
-                  type="button"
-                  onClick={() => router.push(`/app/file/${gstin}/${fp}`)}
-                  className="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
-                  data-testid="bulk-go-to-queue"
+                <p
+                  className="mt-3 text-xs text-slate-500 dark:text-slate-400"
+                  data-testid="bulk-imported-note"
                 >
-                  Review imported drafts →
-                </button>
+                  Imported rows sit in this period&apos;s draft queue
+                  (<span className="font-mono">extraction.invoice_drafts</span>,
+                  source <span className="font-mono">BULK_IMPORT</span>). The
+                  review queue is document-scoped today, so they are not listed
+                  there yet — reviewing and batch-confirming imported rows is
+                  the next task&apos;s surface.
+                </p>
               )}
             </div>
           )}

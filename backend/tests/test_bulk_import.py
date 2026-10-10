@@ -22,7 +22,7 @@ from __future__ import annotations
 import io
 import uuid
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -83,11 +83,12 @@ async def _drafts(
     api_sessionmaker: async_sessionmaker[Any], gstin: str
 ) -> Sequence[InvoiceDraft]:
     async with api_sessionmaker() as session:
-        return (
+        rows = (
             await session.execute(
                 select(InvoiceDraft).where(InvoiceDraft.gstin == gstin)
             )
         ).scalars().all()
+    return cast("Sequence[InvoiceDraft]", rows)
 
 
 async def _post(
