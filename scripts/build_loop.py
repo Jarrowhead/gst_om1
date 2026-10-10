@@ -74,7 +74,7 @@ ROLE_CHAINS = {
     # now builds, glm-5.3 monitors. Tails swapped consistently. Revert = swap back.
     "builder": [
         ("deepseek-v4.1-flash", "ollama-cloud"),
-        ("kimi-k3", "ollama-cloud"),
+        ("deepseek-v4-pro:0813", "ollama-cloud"),  # kimi-k3 dropped — expensive (Tony 10 Oct, budget)
         ("kimi-k2.7-code", "ollama-cloud"),
     ],
     "tester": [
