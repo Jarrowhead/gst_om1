@@ -31,6 +31,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 EXTRACTION_SCHEMA = "extraction"
 
+# invoice_drafts.source — provenance of a draft row (task 11.1).
+DRAFT_SOURCE_EXTRACTION = "EXTRACTION"
+DRAFT_SOURCE_BULK_IMPORT = "BULK_IMPORT"
+DRAFT_SOURCES: frozenset[str] = frozenset(
+    {DRAFT_SOURCE_EXTRACTION, DRAFT_SOURCE_BULK_IMPORT}
+)
+
 
 class CaptureSource(enum.StrEnum):
     """capture_source routes preprocessing (scan vs photo/digital branch)."""
@@ -129,7 +136,16 @@ class ExtractionJob(Base):
 
 
 class InvoiceDraft(Base):
-    """LLM output pre-confirmation; never mixes with ledger."""
+    """Draft pre-confirmation; never mixes with ledger.
+
+    `extraction_job_id` is nullable (task 11.1): a draft ingested from a
+    spreadsheet (Tally/Busy/Zoho export) has no OCR job to hang off — the file
+    is already structured data. `source` records that provenance and keeps the
+    two populations separable:
+
+      DRAFT_SOURCE_EXTRACTION   "EXTRACTION"   — produced by an extraction job
+      DRAFT_SOURCE_BULK_IMPORT  "BULK_IMPORT"  — ingested by /bulk-import
+    """
 
     __tablename__ = "invoice_drafts"
     __table_args__ = (
@@ -140,15 +156,18 @@ class InvoiceDraft(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(), primary_key=True, default=uuid.uuid4
     )
-    extraction_job_id: Mapped[uuid.UUID] = mapped_column(
+    extraction_job_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(),
         ForeignKey(f"{EXTRACTION_SCHEMA}.extraction_jobs.id"),
-        nullable=False,
+        nullable=True,
     )
     gstin: Mapped[str] = mapped_column(
         String(15), ForeignKey(f"{CORE_SCHEMA}.gst_accounts.gstin"), nullable=False
     )
     fp: Mapped[str] = mapped_column(String(6), nullable=False)
+    source: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=DRAFT_SOURCE_EXTRACTION
+    )
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     field_confidence: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(

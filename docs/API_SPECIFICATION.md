@@ -61,6 +61,7 @@
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/gst-accounts/{gstin}/months/{fp}/documents` | multipart; ≤25 MB/file; multi-file photo burst → one document; magic-byte check; sha256; capture_source param |
+| POST | `/gst-accounts/{gstin}/months/{fp}/bulk-import` | (PHASE11 11.1) multipart `.xlsx`/`.csv` → draft queue. `confirm=false` (default) = column auto-map preview (`mapping`, `unmapped_headers`, `required_missing`, `sample`, `data_rows`), writes nothing. `confirm=true` = bulk-ingest one `extraction.invoice_drafts` row per valid line (`source=BULK_IMPORT`, no extraction job) + per-row report (`rows[]` `IMPORTED|INVALID` with `errors`/`flags`, `imported`, `invalid`, `error_report[]`); a bad row never aborts the file. 422 while a required column is unmapped or `mapping` is not a JSON object of `{canonical_field: header}`; 423 on a FILED period; 404 unknown period; 403 for VIEWER |
 | GET | `/gst-accounts/{gstin}/months/{fp}/documents` | list + job status per doc |
 | GET | `/documents/{docId}` | detail: statuses, preproc_report, confidence summary |
 | GET | `/documents/{docId}/image?page=` | presigned URL (30 min) |

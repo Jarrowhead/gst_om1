@@ -17,6 +17,7 @@ from app.api.errors import (
     value_error_handler,
 )
 from app.api.routers.auth import router as auth_router
+from app.api.routers.bulk_import import router as bulk_import_router
 from app.api.routers.documents import router as documents_router
 from app.api.routers.dpdp import router as dpdp_router
 from app.api.routers.einvoice import router as einvoice_router
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
         settings_router,
         gst_accounts_router,
         documents_router,
+        bulk_import_router,
         itc_router,
         returns_router,
         einvoice_router,

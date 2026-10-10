@@ -141,6 +141,49 @@ export interface DocumentListEnvelope {
   last: boolean;
 }
 
+/* ------------------------------------------------------------------ *
+ * Task 11.1 — bulk Excel/CSV import (PHASE11_13 rec 1).
+ * Mirrors app/services/bulk_import.py's report shape: preview (no writes)
+ * and confirm (bulk-ingest into extraction.invoice_drafts).
+ * ------------------------------------------------------------------ */
+
+export interface BulkImportFlag {
+  rule: string;
+  severity: string;
+  message: string;
+}
+
+export interface BulkImportSampleRow {
+  row: number;
+  values: Record<string, string | null>;
+}
+
+export interface BulkImportRowResult {
+  row: number;
+  status: "IMPORTED" | "INVALID";
+  invoice_no: string | null;
+  draft_id: string | null;
+  errors: string[];
+  flags: BulkImportFlag[];
+}
+
+export interface BulkImportReport {
+  filename: string;
+  format: string;
+  headers: string[];
+  mapping: Record<string, string>;
+  unmapped_headers: string[];
+  required_missing: string[];
+  data_rows: number;
+  capture_source: string;
+  sample: BulkImportSampleRow[];
+  confirmed: boolean;
+  imported: number;
+  invalid: number;
+  rows: BulkImportRowResult[];
+  error_report: { row: number; errors: string[] }[];
+}
+
 export interface DraftDto {
   document_id: string;
   job_id: string;
@@ -215,6 +258,30 @@ export async function rejectDocument(docId: string, reason?: string): Promise<un
 
 export async function triggerExtraction(docId: string): Promise<{ status: string }> {
   return apiFetch(`/documents/${docId}/extract`, { method: "POST" });
+}
+
+/**
+ * Task 11.1 — bulk Excel/CSV import.
+ * `confirm=false` returns the detected-column preview (nothing is written);
+ * `confirm=true` bulk-ingests the rows and returns a per-row result report.
+ */
+export async function bulkImport(
+  gstin: string,
+  fp: string,
+  file: File,
+  confirm: boolean,
+  mapping?: Record<string, string>,
+): Promise<BulkImportReport> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("confirm", confirm ? "true" : "false");
+  if (mapping !== undefined) {
+    form.append("mapping", JSON.stringify(mapping));
+  }
+  return apiFetch(`/gst-accounts/${gstin}/months/${fp}/bulk-import`, {
+    method: "POST",
+    body: form,
+  });
 }
 
 export async function getGstr1Export(gstin: string, fp: string): Promise<Record<string, unknown>> {

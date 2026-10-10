@@ -4,11 +4,16 @@
  * Upload page — the entry to the upload-to-output happy path (Task 7.2).
  * User picks a capture source, drops/uploads a file, and the backend stores
  * it, spawns an extraction job, then starts polling the document status.
+ *
+ * Task 11.1 adds a second tab ("Bulk Excel/CSV") that ingests a spreadsheet
+ * export straight into the draft queue. The capture tab is the default and
+ * keeps every existing testid/behaviour on this page unchanged.
  */
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { BatchUploadQueue } from "@/components/upload/BatchUploadQueue";
+import { BulkImportTab } from "@/components/upload/BulkImportTab";
 import {
   ApiError,
   getDocument,
@@ -24,6 +29,7 @@ import {
 } from "@/lib/extraction/status";
 
 type CaptureSource = "PDF_SCAN" | "DIGITAL" | "PHOTO" | "WHATSAPP";
+type UploadTab = "CAPTURE" | "BULK";
 
 const CAPTURE_LABELS: Record<CaptureSource, string> = {
   PDF_SCAN: "PDF scan",
@@ -37,6 +43,9 @@ export default function UploadPage() {
   const router = useRouter();
   const { gstin, fp } = params;
 
+  // Task 11.1: tab switch. CAPTURE is the default so the single-file card,
+  // the batch queue and their testids stay visible exactly as before.
+  const [tab, setTab] = useState<UploadTab>("CAPTURE");
   const [captureSource, setCaptureSource] = useState<CaptureSource>("PDF_SCAN");
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -89,6 +98,46 @@ export default function UploadPage() {
         <span className="font-mono">{fp}</span>
       </p>
 
+      {/* Task 11.1: capture (default) vs bulk spreadsheet import. */}
+      <div
+        className="mt-6 flex gap-2 border-b border-slate-200 dark:border-slate-800"
+        role="tablist"
+        data-testid="upload-tabs"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "CAPTURE"}
+          onClick={() => setTab("CAPTURE")}
+          className={`px-3 py-2 text-sm font-medium ${
+            tab === "CAPTURE"
+              ? "border-b-2 border-indigo-600 text-indigo-700 dark:text-indigo-300"
+              : "text-slate-500 dark:text-slate-400"
+          }`}
+          data-testid="upload-tab-capture"
+        >
+          Photo / PDF upload
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "BULK"}
+          onClick={() => setTab("BULK")}
+          className={`px-3 py-2 text-sm font-medium ${
+            tab === "BULK"
+              ? "border-b-2 border-indigo-600 text-indigo-700 dark:text-indigo-300"
+              : "text-slate-500 dark:text-slate-400"
+          }`}
+          data-testid="upload-tab-bulk"
+        >
+          Bulk Excel/CSV
+        </button>
+      </div>
+
+      {tab === "BULK" && <BulkImportTab gstin={gstin} fp={fp} />}
+
+      {tab === "CAPTURE" && (
+        <>
       <form onSubmit={submit} className="mt-8 space-y-6">
         <div>
           <label className="block text-sm font-medium">Capture source</label>
@@ -256,6 +305,8 @@ export default function UploadPage() {
           upload → extraction rows). Additive — the single-file card above is
           unchanged and keeps its testids/contract. */}
       <BatchUploadQueue gstin={gstin} fp={fp} />
+        </>
+      )}
     </main>
   );
 }
