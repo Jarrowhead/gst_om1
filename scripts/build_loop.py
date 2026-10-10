@@ -61,40 +61,33 @@ ROLES_PATH = os.path.join(BUILD_DIR, "role_models.json")
 # die mid-build with a 401/402 from their upstream, so the head of each chain is
 # the route that has actually completed a full build/test turn in this repo.
 #
-# 5 Oct 2026: SWITCHED TO OLLAMA-CLOUD (Tony's cost decision). All OmniRoute
-# routes removed from every chain — ollama-cloud is now the ONLY provider, every
-# rung verified live against https://ollama.com/v1 with the arithmetic check
-# (12345.67 @18% → 2222.2206). Tester primary is glm-5.3-flash (cheaper than
-# glm-5.3; Tester turns are short), Monitor stays deepseek-v4.1-flash and is
-# kept OFF the Tester route (judge must not share the evidence producer's
-# upstream). Do not re-introduce OmniRoute here — an out-of-band edit that does
-# is a regression, not a failover improvement.
+# 10 Oct 2026: HYBRID SET (Tony's explicit decision). Ollama-cloud primaries;
+# OmniRoute (localhost:20128) frontier routes as the coding/reasoning failovers.
+#   builder  = glm-5.3-flash        → auto/best-coding     (OmniRoute)
+#   tester   = deepseek-v4.1-flash  → auto/best-reasoning  (OmniRoute)
+#   monitor  = glm-5.3 (no failover)
+# OmniRoute auto/best-coding + auto/best-reasoning are the REAL frontier routes
+# (verified live 10 Oct: 12345.67*0.18 → 2222, NOT the stub's 14567.9); neither
+# is in STUB_ROUTES. Monitor glm-5.3 stays OFF the tester route (judge must not
+# share the evidence producer's upstream).
 ROLE_CHAINS = {
-    # Builder/Monitor chains SWAPPED at Tony's request, 9 Oct — deepseek-v4.1-flash
-    # now builds, glm-5.3 monitors. Tails swapped consistently. Revert = swap back.
     "builder": [
-        ("deepseek-v4.1-flash", "ollama-cloud"),
-        ("deepseek-v4-pro:0813", "ollama-cloud"),  # kimi-k3 dropped — expensive (Tony 10 Oct, budget)
-        ("kimi-k2.7-code", "ollama-cloud"),
+        ("glm-5.3-flash", "ollama-cloud"),
+        ("auto/best-coding", "omniroute"),
     ],
     "tester": [
-        ("minimax-m2.7", "ollama-cloud"),
-        ("glm-5.3-flash", "ollama-cloud"),
-        ("kimi-k2.6", "ollama-cloud"),
+        ("deepseek-v4.1-flash", "ollama-cloud"),
+        ("auto/best-reasoning", "omniroute"),
     ],
-    # Monitor = glm-5.3 (swapped with Builder, Tony 9 Oct). Still independent of
-    # the Tester's primary route (minimax-m2.7), so the pass/fail judgement never
-    # comes from the same upstream that produced the verification evidence.
     "monitor": [
         ("glm-5.3", "ollama-cloud"),
-        ("deepseek-v4.1-flash", "ollama-cloud"),
     ],
 }
 
 # Builder-feedback / rework model chain (used to turn tester findings into a fix).
 FEEDBACK_CHAIN = [
     ("glm-5.3", "ollama-cloud"),
-    ("kimi-k2.7-code", "ollama-cloud"),
+    ("auto/best-coding", "omniroute"),
 ]
 
 # Routes that currently answer with a LOCAL STUB rather than the real upstream:
