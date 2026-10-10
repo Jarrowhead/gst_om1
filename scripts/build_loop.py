@@ -76,7 +76,7 @@ ROLE_CHAINS = {
         ("auto/best-coding", "omniroute"),
     ],
     "tester": [
-        ("deepseek-v4.1-flash", "ollama-cloud"),
+        ("minimax-m2.7", "ollama-cloud"),  # deepseek-v4.1-flash dropped — hangs on exit (Tony 11 Oct)
         ("auto/best-reasoning", "omniroute"),
     ],
     "monitor": [
