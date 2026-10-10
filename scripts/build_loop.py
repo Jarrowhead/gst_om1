@@ -327,7 +327,10 @@ def run_agent(model, provider, prompt, max_turns=250, timeout=1800):
 
         STUCK_CHECK_INTERVAL = 120   # every 2 min (was 600 — safe with 4 signals)
         STUCK_MIN_CPU = 0.2          # < 0.2s CPU per window = idle
-        STUCK_HARD_CAP = 7200        # absolute 2h backstop per role run
+        # Hard cap = the per-role `timeout` arg (builder 7200, tester 1800,
+        # monitor 1200/900, feedback 900). This is the busy-wait safety net:
+        # a hung agent busy-polls at ~0.6s CPU/120s (above STUCK_MIN_CPU=0.2)
+        # so the 4-signal detector misses it; the wall-clock cap catches it.
         # An agent with active TCP connections is waiting on the API — NOT stuck.
         # Require ALL signals flat to declare stuck (CPU + no TCP + no I/O delta + no mem delta).
         STUCK_MIN_IO_DELTA = 1024          # < 1KB I/O delta = no disk activity
@@ -371,7 +374,7 @@ def run_agent(model, provider, prompt, max_turns=250, timeout=1800):
                     pass
             return total
 
-        deadline = time.time() + STUCK_HARD_CAP
+        deadline = time.time() + timeout
         window_start = time.time()
         cpu_start = tree_cpu_safe()
         io_start = tree_io(proc.pid)
@@ -380,13 +383,13 @@ def run_agent(model, provider, prompt, max_turns=250, timeout=1800):
         while proc.poll() is None:
             now_t = time.time()
             if now_t >= deadline:
-                log(f"  ✗ {model} HARD CAP {STUCK_HARD_CAP}s reached — killing tree")
+                log(f"  ✗ {model} HARD CAP {timeout}s reached — killing tree")
                 kill_tree(proc.pid)
                 try:
                     proc.communicate(timeout=60)
                 except Exception:
                     pass
-                return f"TIMEOUT after {STUCK_HARD_CAP}s"
+                return f"TIMEOUT after {timeout}s"
             if now_t - window_start >= STUCK_CHECK_INTERVAL:
                 cpu_now = tree_cpu_safe()
                 window_cpu = cpu_now - cpu_start
@@ -926,7 +929,7 @@ def main():
         instruction = slot.get("monitor_instruction")
         b_out, b_used = run_role("builder", ROLE_CHAINS["builder"],
                                  builder_prompt(task, phase, feedback, instruction),
-                                 start=roles["builder"]["model"])
+                                 start=roles["builder"]["model"], timeout=7200)
         slot["builder_model_used"] = b_used["model"]
         slot["history"].append({"role": "builder", "out": b_out[-4000:],
                                 "ts": datetime.now().isoformat()})
@@ -935,7 +938,7 @@ def main():
         # ── TEST (tester sees the builder's claims, must verify independently) ──
         t_out, t_used = run_role("tester", ROLE_CHAINS["tester"],
                                  tester_prompt(task, phase, b_out),
-                                 start=roles["tester"]["model"])
+                                 start=roles["tester"]["model"], timeout=1800)
         slot["tester_model_used"] = t_used["model"]
         slot["history"].append({"role": "tester", "out": t_out[-4000:],
                                 "ts": datetime.now().isoformat()})
