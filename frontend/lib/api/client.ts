@@ -256,6 +256,48 @@ export async function rejectDocument(docId: string, reason?: string): Promise<un
   });
 }
 
+/* ------------------------------------------------------------------ *
+ * Task 11.2 — 1-click Batch Confirm (PHASE11_13 rec 2).
+ * Backend: POST /gst-accounts/{gstin}/months/{fp}/review-queue/batch-confirm
+ * (`dry_run=true` evaluates + writes nothing). Shapes mirror
+ * app/services/batch_confirm.py exactly — no client-side invention.
+ * ------------------------------------------------------------------ */
+
+export interface BatchConfirmQuarantineRow {
+  kind: "EXTRACTION" | "BULK_IMPORT";
+  document_id: string | null;
+  draft_id: string;
+  invoice_no: string | null;
+  confidence_avg: number | null;
+  /** BLOCKING_FLAGS | BELOW_THRESHOLD | WRITE_<ERROR_CODE> */
+  reason: string;
+  rules: string[];
+}
+
+export interface BatchConfirmResult {
+  gstin: string;
+  fp: string;
+  dry_run: boolean;
+  /** Integer paise total of the invoices the (real) call wrote. */
+  total_paise: number;
+  confirmed: number;
+  confirmed_invoice_ids: string[];
+  quarantined: number;
+  quarantine: BatchConfirmQuarantineRow[];
+}
+
+export async function batchConfirm(
+  gstin: string,
+  fp: string,
+  dryRun: boolean,
+): Promise<BatchConfirmResult> {
+  return apiFetch(
+    `/gst-accounts/${gstin}/months/${fp}/review-queue/batch-confirm` +
+      (dryRun ? "?dry_run=true" : ""),
+    { method: "POST" },
+  );
+}
+
 export async function triggerExtraction(docId: string): Promise<{ status: string }> {
   return apiFetch(`/documents/${docId}/extract`, { method: "POST" });
 }

@@ -314,6 +314,104 @@ async def update_draft(
     return _draft_envelope(doc, job, draft, validation)
 
 
+async def _persist_invoice(
+    session: AsyncSession,
+    *,
+    validation: Any,
+    gstin: str,
+    fp: str,
+    source_doc_id: uuid.UUID | None,
+    user_id: uuid.UUID,
+) -> Invoice:
+    """Create the Invoice + InvoiceLines from a validator-passing draft.
+
+    Shared by per-draft confirm (review flow) and batch confirm
+    (services/batch_confirm.py, task 11.2) so both write the ledger with the
+    IDENTICAL direction/total/line-tax arithmetic. Raises 409
+    DUPLICATE_INVOICE on a colliding invoice_no — the caller owns job status,
+    audit rows and the commit.
+    """
+    fields = validation.document.fields
+    direction = _direction_for(fields, gstin)
+
+    supply_type_str = validation.derived.get("supply_type")
+    if not supply_type_str:
+        raise ServiceError(
+            "unable to derive supply type", 422, "VALIDATION_ERROR"
+        )
+    is_inter = supply_type_str == "INTER"
+
+    invoice_no = (fields.invoice_no or "").strip()
+    if not invoice_no:
+        raise ServiceError("invoice_no is required", 422, "VALIDATION_ERROR")
+
+    duplicate = await session.execute(
+        select(Invoice.id).where(
+            Invoice.gstin == gstin,
+            Invoice.fp == fp,
+            Invoice.invoice_no == invoice_no,
+        )
+    )
+    if duplicate.scalar_one_or_none() is not None:
+        raise ServiceError(
+            "duplicate invoice_no in this registration/filing period",
+            409,
+            "DUPLICATE_INVOICE",
+        )
+
+    invoice = Invoice(
+        gstin=gstin,
+        fp=fp,
+        direction=direction,
+        supplier_gstin=_normalise_gstin(fields.supplier_gstin),
+        buyer_gstin=_normalise_gstin(fields.buyer_gstin),
+        invoice_no=invoice_no,
+        invoice_date=date.fromisoformat(str(fields.invoice_date)),
+        place_of_supply=str(fields.place_of_supply or ""),
+        supply_type=SupplyType(supply_type_str),
+        rchrg=bool(fields.rchrg),
+        inv_typ=InvType(fields.inv_typ or "R"),
+        total_value_minor=int(fields.total_value_paise or 0),
+        source_doc_id=source_doc_id,
+        status=InvoiceStatus.CONFIRMED,
+        confirmed_by=user_id,
+        confirmed_at=datetime.now(tz=datetime.now().astimezone().tzinfo),
+    )
+    session.add(invoice)
+    await session.flush()
+
+    line_payloads = validation.document.lines
+    for idx, raw_line in enumerate(line_payloads):
+        line_no = idx + 1
+        line_dict = raw_line.model_dump() if isinstance(raw_line, ExtractedLine) else dict(raw_line)
+        cgst, sgst, igst = _compute_line_taxes(line_dict, is_inter)
+        taxable = int(line_dict.get("taxable_value_paise") or 0)
+        rate = Decimal(str(line_dict.get("gst_rate") or 0))
+        qty = line_dict.get("qty")
+        session.add(
+            InvoiceLine(
+                invoice_id=invoice.id,
+                line_no=line_no,
+                description=line_dict.get("desc"),
+                hsn_sac=line_dict.get("hsn_sac"),
+                uqc=line_dict.get("uqc"),
+                qty=Decimal(str(qty)) if qty is not None else None,
+                unit_price_minor=(
+                    int(up)
+                    if (up := line_dict.get("unit_price_paise")) is not None
+                    else None
+                ),
+                gst_rate=rate,
+                taxable_value_minor=taxable,
+                cgst_minor=cgst,
+                sgst_minor=sgst,
+                igst_minor=igst,
+                cess_minor=int(line_dict.get("cess_paise") or 0),
+            )
+        )
+    return invoice
+
+
 async def confirm_draft(
     session: AsyncSession,
     doc_id: uuid.UUID,
@@ -342,88 +440,14 @@ async def confirm_draft(
             "VALIDATION_DIRTY",
         )
 
-    _account, gstin, _existing = await _validation_context(session, doc, draft)
-    fields = validation.document.fields
-    direction = _direction_for(fields, gstin)
-
-    supply_type_str = validation.derived.get("supply_type")
-    if not supply_type_str:
-        raise ServiceError(
-            "unable to derive supply type", 422, "VALIDATION_ERROR"
-        )
-    is_inter = supply_type_str == "INTER"
-
-    invoice_no = (fields.invoice_no or "").strip()
-    if not invoice_no:
-        raise ServiceError("invoice_no is required", 422, "VALIDATION_ERROR")
-
-    duplicate = await session.execute(
-        select(Invoice.id).where(
-            Invoice.gstin == doc.gstin,
-            Invoice.fp == doc.fp,
-            Invoice.invoice_no == invoice_no,
-        )
-    )
-    if duplicate.scalar_one_or_none() is not None:
-        raise ServiceError(
-            "duplicate invoice_no in this registration/filing period",
-            409,
-            "DUPLICATE_INVOICE",
-        )
-
-    invoice = Invoice(
+    invoice = await _persist_invoice(
+        session,
+        validation=validation,
         gstin=doc.gstin,
         fp=doc.fp,
-        direction=direction,
-        supplier_gstin=_normalise_gstin(fields.supplier_gstin),
-        buyer_gstin=_normalise_gstin(fields.buyer_gstin),
-        invoice_no=invoice_no,
-        invoice_date=date.fromisoformat(str(fields.invoice_date)),
-        place_of_supply=str(fields.place_of_supply or ""),
-        supply_type=SupplyType(supply_type_str),
-        rchrg=bool(fields.rchrg),
-        inv_typ=InvType(fields.inv_typ or "R"),
-        total_value_minor=int(fields.total_value_paise or 0),
         source_doc_id=doc.id,
-        status=InvoiceStatus.CONFIRMED,
-        confirmed_by=user_id,
-        confirmed_at=datetime.now(tz=datetime.now().astimezone().tzinfo),
+        user_id=user_id,
     )
-    session.add(invoice)
-    await session.flush()
-
-    line_payloads = draft.payload.get("lines", []) or []
-    for idx, raw_line in enumerate(line_payloads):
-        line_no = idx + 1
-        if isinstance(raw_line, ExtractedLine):
-            line_dict = raw_line.model_dump()
-        else:
-            line_dict = dict(raw_line)
-        cgst, sgst, igst = _compute_line_taxes(line_dict, is_inter)
-        taxable = int(line_dict.get("taxable_value_paise") or 0)
-        rate = Decimal(str(line_dict.get("gst_rate") or 0))
-        qty = line_dict.get("qty")
-        session.add(
-            InvoiceLine(
-                invoice_id=invoice.id,
-                line_no=line_no,
-                description=line_dict.get("desc"),
-                hsn_sac=line_dict.get("hsn_sac"),
-                uqc=line_dict.get("uqc"),
-                qty=Decimal(str(qty)) if qty is not None else None,
-                unit_price_minor=(
-                    int(up)
-                    if (up := line_dict.get("unit_price_paise")) is not None
-                    else None
-                ),
-                gst_rate=rate,
-                taxable_value_minor=taxable,
-                cgst_minor=cgst,
-                sgst_minor=sgst,
-                igst_minor=igst,
-                cess_minor=int(line_dict.get("cess_paise") or 0),
-            )
-        )
 
     job.status = JobStatus.CONFIRMED
 
@@ -434,7 +458,7 @@ async def confirm_draft(
         entity_id=str(invoice.id),
         actor_user_id=user_id,
         gstin=access.gstin,
-        payload_diff={"source_doc_id": str(doc.id), "invoice_no": invoice_no},
+        payload_diff={"source_doc_id": str(doc.id), "invoice_no": invoice.invoice_no},
     )
     await session.commit()
     await session.refresh(invoice)

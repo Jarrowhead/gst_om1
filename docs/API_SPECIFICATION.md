@@ -66,6 +66,7 @@
 | GET | `/documents/{docId}` | detail: statuses, preproc_report, confidence summary |
 | GET | `/documents/{docId}/image?page=` | presigned URL (30 min) |
 | GET | `/gst-accounts/{gstin}/months/{fp}/review-queue` | NEEDS_REVIEW docs, confidence-ascending |
+| POST | `/gst-accounts/{gstin}/months/{fp}/review-queue/batch-confirm` | (PHASE11 11.2) 1-click bulk confirm — confirms every pending draft (EXTRACTION review jobs + BULK_IMPORT rows) with no BLOCK flag and mandatory-field `confidence_avg >= 0.95` (Decimal gate); the rest stay pending and are returned per-item in `quarantine` (`reason: BLOCKING_FLAGS\|BELOW_THRESHOLD`); one append-only `BATCH_CONFIRM` audit row per real call keyed by `gstin`; `dry_run=true` evaluates + writes nothing (button gating); 423 on a FILED period; 403 VIEWER; FILER/ADMIN only |
 | GET | `/documents/{docId}/draft` | draft fields + per-field confidence |
 | PUT | `/documents/{docId}/draft` | edit fields → server validator re-runs |
 | POST | `/documents/{docId}/confirm` | draft → invoices/invoice_lines; rejects if validator dirty |

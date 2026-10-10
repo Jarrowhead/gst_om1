@@ -21,6 +21,7 @@ from app.config import get_settings
 from app.core.access import (
     GstinAccess,
     require_gstin_access,
+    require_gstin_write,
     resolve_gstin_access,
 )
 from app.core.auth.dependencies import require_user
@@ -31,6 +32,7 @@ from app.extraction.seed import (
     seed_ocr_provider,
 )
 from app.extraction.worker import run_job
+from app.services.batch_confirm import batch_confirm
 from app.services.documents import (
     get_document,
     get_document_detail,
@@ -132,6 +134,20 @@ async def review_queue(
 ) -> dict[str, Any]:
     rows = await get_review_queue(session, access, fp)
     return {"success": True, "data": rows}
+
+
+@router.post("/gst-accounts/{gstin}/months/{fp}/review-queue/batch-confirm")
+async def batch_confirm_clean_invoices(
+    gstin: str,
+    fp: Annotated[str, Path(pattern=FP_REGEX, description="Filing period MMYYYY")],
+    access: Annotated[GstinAccess, Depends(require_gstin_write("gstin"))],
+    session: SessionDep,
+    dry_run: Annotated[bool, Query(description="Evaluate + report, write nothing")] = False,
+) -> dict[str, Any]:
+    """Task 11.2: confirm every clean (no BLOCK flag), confidence-avg >= 0.95
+    pending draft in one call; the rest stay pending, reported per-item."""
+    data = await batch_confirm(session, access, fp, access.user_id, dry_run=dry_run)
+    return {"success": True, "data": data}
 
 
 @router.get("/documents/{doc_id}/draft")

@@ -21,6 +21,7 @@ import {
   GspFileResult,
   listDocuments,
 } from "@/lib/api/client";
+import { BatchConfirmPanel } from "@/components/upload/BatchConfirmPanel";
 import { isTerminalStatus } from "@/lib/extraction/status";
 
 /** Re-list interval while any row is non-terminal (Task 9.2: 5s). */
@@ -159,6 +160,12 @@ export default function FileQueuePage() {
         <p className="mt-6 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
           {error}
         </p>
+      )}
+
+      {loading ? null : (
+        <div className="mt-6">
+          <BatchConfirmPanel gstin={gstin} fp={fp} />
+        </div>
       )}
 
       {rows.length === 0 ? (
