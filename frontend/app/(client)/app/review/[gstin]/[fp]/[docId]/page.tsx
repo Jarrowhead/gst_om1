@@ -257,7 +257,12 @@ export default function ReviewPage() {
         setFieldNotes((n) => ({ ...n, [key]: AMOUNT_ERROR }));
         return;
       }
-      const next = Math.round(parseFloat(cleaned) * 100);
+      const parsedFloat = parseFloat(cleaned);
+      if (parsedFloat < 0) {
+        setFieldNotes((n) => ({ ...n, [key]: "Amount cannot be negative. Not saved." }));
+        return;
+      }
+      const next = Math.round(parsedFloat * 100);
       if (current === next) {
         setFieldNotes((n) => ({ ...n, [key]: "" }));
         return;

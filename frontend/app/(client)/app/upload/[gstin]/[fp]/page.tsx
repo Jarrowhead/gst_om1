@@ -208,13 +208,21 @@ export default function UploadPage() {
       </form>
 
       {error !== null && (
-        <p
-          className="mt-6 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
+        <div
+          className="mt-6 flex items-center justify-between rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
           role="alert"
           data-testid="upload-error"
         >
-          {error}
-        </p>
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => { setError(null); setFile(null); }}
+            className="ml-3 rounded bg-red-100 px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-200 dark:bg-red-900 dark:text-red-200"
+            data-testid="upload-error-clear"
+          >
+            Clear
+          </button>
+        </div>
       )}
 
       {result !== null && (
