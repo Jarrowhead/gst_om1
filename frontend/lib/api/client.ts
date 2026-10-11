@@ -550,6 +550,51 @@ export async function listEinvoices(
 }
 
 /** Confirmed outward invoice for the IRN board (backend einvoice router). */
+export interface EwbPartADto {
+  from_gstin: string;
+  to_gstin: string;
+  doc_no: string;
+  doc_date: string;
+  total_value_minor: number;
+  hsn_code: string | null;
+  reason_for_transport: string;
+}
+
+export interface EwbPartBDto {
+  transporter_id: string | null;
+  vehicle_no: string | null;
+  distance_km: number;
+}
+
+export interface EwbDto {
+  ewb_no: string;
+  ewb_date: string;
+  valid_until: string;
+  status: string;
+  part_a: EwbPartADto;
+  part_b: EwbPartBDto;
+  signed_qr_base64: string;
+}
+
+export interface GenerateEwbPayload {
+  transporter_id?: string;
+  vehicle_no?: string;
+  distance_km?: number;
+}
+
+export async function generateEwb(
+  gstin: string,
+  fp: string,
+  invoiceId: string,
+  payload?: GenerateEwbPayload,
+): Promise<EwbDto> {
+  return apiFetch(`/gst-accounts/${gstin}/months/${fp}/einvoices/${invoiceId}/ewb`, {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  });
+}
+
+/** Confirmed outward invoice for the IRN board (backend einvoice router). */
 export interface InvoiceDto {
   id: string;
   invoice_no: string;
@@ -559,6 +604,8 @@ export interface InvoiceDto {
   supply_type: string;
   irn: string | null;
   irn_status: "PENDING" | "GENERATED" | "CANCELLED";
+  ewb_no?: string | null;
+  ewb_status?: "PENDING" | "GENERATED" | "NOT_REQUIRED";
 }
 
 export async function listInvoices(
