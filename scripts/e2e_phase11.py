@@ -60,7 +60,7 @@ FRONTEND = ROOT / "frontend"
 CLIENT_APP = FRONTEND / "app" / "(client)" / "app"
 SHELL_NAV = FRONTEND / "components" / "shared" / "ShellNav.tsx"
 
-PY = str(BACKEND / ".venv" / "Scripts" / "python.exe")
+PY = str(BACKEND / "venv" / "Scripts" / "python.exe")
 
 # Phase-11 backend modules — Lens 3 re-runs these explicitly; Lens 1 runs the
 # whole tests/ tree including them.
