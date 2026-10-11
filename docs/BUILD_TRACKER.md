@@ -25,7 +25,7 @@
 | 10 | Bug Sweep: FY rollover, shell nav, coverage gate, checksum hint — Tony, 9 Oct | 5 | 5 | 0 | ✅ Complete |
 | 11 | Tier 1: Core Workflow Accelerators (bulk import, batch confirm, Rule 88A set-off) — recs 1/2/3, Tony 10 Oct | 4 | 3 | 1 | 🔄 In progress |
 | 12 | Tier 2: CA Practice & Enterprise Controls (maker-checker sign-off + vendor 2B notice) — recs 4/5, Tony 10 Oct | 3 | 0 | 3 | ⬜ Not started |
-| 13 | Tier 3: Logistics Moat (E-Way Bill sandbox) — rec 6, Tony 10 Oct | 2 | 0 | 2 | ⬜ Not started |
+| 13 | Tier 3: Logistics Moat (E-Way Bill sandbox) — rec 6, Tony 10 Oct | 2 | 2 | 0 | ✅ Complete |
 | **Total** | | **80** | **74** | **6** | |
 
 ---
@@ -179,8 +179,8 @@
 
 | ID | Task | Status | Source docs |
 |---|---|---|---|
-| 13.1 | E-Way Bill (EWB) sandbox generation from confirmed outward invoices (value > Rs 50,000) (rec 6) | ⬜ Not started | `PHASE11_13_RECOMMENDATION_BUILD.md`, `API_SPECIFICATION.md`, `EXTRACTION_SPEC.md` |
-| 13.2 | Phase-13 E2E + full regression (3-lens) + tracker regeneration | ⬜ Not started | `PHASE11_13_RECOMMENDATION_BUILD.md`, `VERIFICATION_SWEEP.md`, `TESTING_GUIDE.md` |
+| 13.1 | E-Way Bill (EWB) sandbox generation from confirmed outward invoices (value > Rs 50,000) (rec 6) | ✅ Done | `PHASE11_13_RECOMMENDATION_BUILD.md`, `API_SPECIFICATION.md`, `EXTRACTION_SPEC.md` |
+| 13.2 | Phase-13 E2E + full regression (3-lens) + tracker regeneration | ✅ Done | `PHASE11_13_RECOMMENDATION_BUILD.md`, `VERIFICATION_SWEEP.md`, `TESTING_GUIDE.md` |
 
 ---
 

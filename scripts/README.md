@@ -21,3 +21,5 @@ Run everything from the **repo root** with the backend venv unless noted.
 - **`generate_tracker.py` needs `build/plan.json` + `build/state.json`**, which are gitignored. On a fresh clone those files are absent — the committed `docs/BUILD_TRACKER.md` is then the record.
 - **E2E harnesses carry a `#!/usr/bin/env python3` shebang, but `python3` does not exist on this Windows host.** Run them via `uv run --project backend python scripts/e2e_phaseN.py` from the repo root.
 - `build/` and `tools/` are gitignored (loop state + native binaries).
+
+- `scripts/e2e_phase13.py`: 3-lens E2E verification for Phase 13 (Logistics Moat / E-Way Bill sandbox, tasks 13.1 & 13.2).
