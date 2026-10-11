@@ -15,7 +15,7 @@ Run from the repo root unless noted.
 # --- Backend ---
 cd backend
 ./.venv/Scripts/python.exe -m pytest tests/ -q              # behaviour + coverage floor
-./.venv/Scripts/python.exe -m pytest tests/ -q --no-cov     # behaviour only (273 tests)
+./.venv/Scripts/python.exe -m pytest tests/ -q --no-cov     # behaviour only (322 tests)
 ./.venv/Scripts/python.exe -m ruff check .                  # lint
 ./.venv/Scripts/python.exe -m mypy .                        # types
 
@@ -28,19 +28,19 @@ npm run lint                                                # lint
 npx playwright test tests/task7-2-upload-to-output.spec.ts  # upload→output happy path
 ```
 
-### Expected results (as of the last full run — Phase-10 exit, 9 Oct 2026)
+### Expected results (as of the last full run — Phase-11 exit, 11 Oct 2026)
 | Gate | Result | Note |
 |---|---|---|
-| `pytest tests/ -q --no-cov` | **273 passed, 0 failed** | verified live |
-| `pytest tests/ -q` | **273 passed, 0 failed, coverage 84.12 % ≥ 80 %** | floor met (10.3) |
+| `pytest tests/ -q --no-cov` | **322 passed, 0 failed** | verified live (junitxml tests=322) |
+| `pytest tests/ -q` | **322 passed, 0 failed, coverage 83.01 % ≥ 80 %** | floor met (10.3) |
 | `ruff check .` (backend) | clean | |
-| `mypy app/` | **clean — 0 issues in 66 source files** | gate is `app/`; pre-existing `tests/` errors out of scope |
+| `mypy app/` | **clean — 0 issues in 70 source files** | gate is `app/`; pre-existing `tests/` errors out of scope |
 | `npx tsc --noEmit` | clean (exit 0) | |
 | `npm run lint` | clean (exit 0) | |
-| `npx playwright test` | **33 passed** (1 worker) | needs backend :8084 up; `retries: 1` absorbs a contended first run |
+| `npx playwright test` | **35 passed** (1 worker) | needs backend :8084 up; `retries: 1` absorbs a contended first run |
 | `python scripts/e2e_phase8.py` | **ALL LENSES PASSED** (Code / Frontend / GST-domain) | the Phase-8 gate |
 | `python scripts/e2e_phase10.py` | **ALL LENSES PASSED** (Code / Frontend / GST-domain) | the Phase-10 gate |
-| `python scripts/e2e_phase11.py` | **ALL LENSES PASSED** (Code / Frontend / GST-domain) | the Phase-11 gate |
+| `python scripts/e2e_phase11.py` | **ALL LENSES PASSED** (Code / Frontend / GST-domain) | the Phase-11 gate — Lens 1 pytest 322 passed, cov 83.01 %; Lens 2 Playwright 35 passed; Lens 3 audits green |
 
 > To get an unambiguous pass count when the pytest summary line vanishes, add `--junitxml=<absolute native path>` and parse the `testsuite` attributes. MSYS `$TMPDIR` is invisible to native python — use a `C:/...` path.
 
@@ -48,7 +48,7 @@ npx playwright test tests/task7-2-upload-to-output.spec.ts  # upload→output ha
 
 ## 2. Test inventory
 
-### Backend — `backend/tests/` (43 test modules, 273 tests)
+### Backend — `backend/tests/` (43 test modules, 322 tests)
 | Area | Modules |
 |---|---|
 | Auth | `test_auth_otp`, `test_auth_password`, `test_auth_refresh`, `test_auth_totp`, `test_auth_me`, `test_auth_logout_all` |
@@ -86,6 +86,7 @@ npx playwright test tests/task7-2-upload-to-output.spec.ts  # upload→output ha
 | `phase9-review-advisory-warn.spec.ts` | 9.5 WARN-tier advisory validation rules |
 | `phase10-shell-nav.spec.ts` | 10.2 shared client shell layout (header on workspace routes, no double header) |
 | `phase10-live-checksum.spec.ts` | 10.4 live mod-36 checksum feedback on the Add Business form |
+| `phase11-workflow-accelerators.spec.ts` | **11.4 gate** — 11.1 Bulk Excel/CSV upload tab by nav, 11.2 Batch Confirm (honest dry-run gating → 1-click confirm of 2 clean drafts), 11.3 Rule 88A set-off matrix + challan |
 | `totp-utils.ts` | TOTP test helper (not a test) |
 
 ---

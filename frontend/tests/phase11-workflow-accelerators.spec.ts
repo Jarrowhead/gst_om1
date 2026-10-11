@@ -30,7 +30,11 @@
 import { expect, test, Page } from "@playwright/test";
 
 const BACKEND = "http://127.0.0.1:8084";
-const FP = "102026";
+// The nav's workspace-agnostic hrefs fall back to ShellNav's DEFAULT_FP
+// ("092026" — the shipped convention the phase-8/9/10 specs also target),
+// so the seeded drafts must live in that same period for the Filing page's
+// dry run to see them.
+const FP = "092026";
 
 function uniqueEmail(): string {
   return `test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}@example.com`;
@@ -194,9 +198,9 @@ test.describe("Phase-11 workflow accelerators (11.1/11.2/11.3)", () => {
     const buyer = gstin;
     const csv = [
       "Invoice No,Invoice Date,Supplier GSTIN,Buyer GSTIN,Taxable Value,GST Rate,HSN",
-      `BC-UI-1,2026-10-05,${supplier},${buyer},10000.00,18,73269099`,
-      `BC-UI-2,2026-10-06,${supplier},${buyer},20000.00,18,73269099`,
-      `BC-UI-3,2026-10-07,${bulkBadGstin()},${buyer},30000.00,18,73269099`,
+      `BC-UI-1,2026-09-05,${supplier},${buyer},10000.00,18,73269099`,
+      `BC-UI-2,2026-09-06,${supplier},${buyer},20000.00,18,73269099`,
+      `BC-UI-3,2026-09-07,${bulkBadGstin()},${buyer},30000.00,18,73269099`,
     ].join("\n");
 
     const form = new FormData();
@@ -242,8 +246,10 @@ test.describe("Phase-11 workflow accelerators (11.1/11.2/11.3)", () => {
       "₹35,400.00",
     );
     // The quarantined rows are reported with the backend's reason — the bad
-    // checksum row never became a draft, so exactly 0 quarantines here.
-    await expect(page.getByTestId("batch-confirm-quarantined")).toHaveText("0");
+    // checksum row never became a draft, so exactly 0 quarantines here and
+    // the panel renders no "left in review" span (it exists only when
+    // quarantined > 0).
+    await expect(page.getByTestId("batch-confirm-quarantined")).toHaveCount(0);
 
     // Post-call re-evaluation: everything clean is confirmed -> disabled again.
     await expect(btn).toBeDisabled({ timeout: 15_000 });

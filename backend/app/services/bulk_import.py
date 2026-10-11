@@ -84,6 +84,8 @@ from app.extraction.validate import (
 )
 from openpyxl import load_workbook
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 MAX_BULK_BYTES = 10 * 1024 * 1024
@@ -894,10 +896,42 @@ def build_row(
 async def _ensure_open_period(
     session: AsyncSession, gstin: str, fp: str
 ) -> FilingPeriod:
-    """404 when the period is unknown, 423 when it is locked after filing."""
+    """Return an OPEN filing period, creating one when it does not exist.
+
+    Product parity with the single-upload path (``documents.py``): a first
+    bulk import into a month that was never touched materialises the OPEN
+    period rather than 404ing, so a fresh tenant's first spreadsheet works.
+    The insert is race-safe (PostgreSQL ``ON CONFLICT DO NOTHING``). A FILED
+    period still refuses every write with 423 PERIOD_LOCKED (HARD RULE 4).
+    """
+    period = await session.get(FilingPeriod, (gstin, fp))
+    if period is not None:
+        if period.status == FilingStatus.FILED:
+            raise ServiceError("period is locked after filing", 423, "PERIOD_LOCKED")
+        return period
+
+    # Race-safe insert using PostgreSQL ON CONFLICT DO NOTHING (the same
+    # pattern documents.py uses for a first upload).
+    try:
+        await session.execute(
+            pg_insert(FilingPeriod)
+            .values(
+                gstin=gstin,
+                fp=fp,
+                scheme_snapshot="REGULAR_MONTHLY",
+                status=FilingStatus.OPEN,
+            )
+            .on_conflict_do_nothing(index_elements=["gstin", "fp"])
+        )
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        raise ServiceError("period concurrently created", 409, "CONFLICT") from None
+
     period = await session.get(FilingPeriod, (gstin, fp))
     if period is None:
-        raise ServiceError("filing period not found", 404, "PERIOD_NOT_FOUND")
+        # Should never happen after a successful insert, but guard anyway.
+        raise ServiceError("period concurrently created", 409, "CONFLICT")
     if period.status == FilingStatus.FILED:
         raise ServiceError("period is locked after filing", 423, "PERIOD_LOCKED")
     return period

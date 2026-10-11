@@ -614,11 +614,15 @@ async def test_bulk_import_locked_period_returns_423(
     assert await _drafts(api_sessionmaker, gstin) == []
 
 
-async def test_bulk_import_period_must_exist(
+async def test_bulk_import_creates_period_on_first_import(
     client: httpx.AsyncClient,
     api_sessionmaker: async_sessionmaker[Any],
 ) -> None:
-    """A row for a period that was never created is a 404, not a silent write."""
+    """A first import into an untouched month materialises the OPEN period.
+
+    Product parity with single upload (documents.py auto-creates the period
+    on first touch): a fresh tenant's first spreadsheet must not 404.
+    """
     headers, gstin, _user_id = await _tenant(client, api_sessionmaker)
     supplier = make_gstin(state_code="27")
 
@@ -626,14 +630,49 @@ async def test_bulk_import_period_must_exist(
         client,
         headers,
         gstin,
-        _csv(f"INV-8001,2026-10-09,{supplier},{gstin},1000.00,18,1234"),
-        "oct.csv",
+        _csv(f"INV-8002,2026-10-09,{supplier},{gstin},1000.00,18,1234"),
+        "oct-first.csv",
         confirm=True,
         fp="102026",
     )
 
-    assert resp.status_code == 404, resp.text
-    assert resp.json()["error"]["code"] == "PERIOD_NOT_FOUND"
+    assert resp.status_code == 200, resp.text
+    body = resp.json()["data"]
+    assert body["imported"] == 1
+    assert body["invalid"] == 0
+    # The period row now exists and is OPEN.
+    async with api_sessionmaker() as session:
+        period = await session.get(FilingPeriod, (gstin, "102026"))
+        assert period is not None
+        assert period.status == FilingStatus.OPEN
+
+
+async def test_bulk_import_filed_period_created_locked_returns_423(
+    client: httpx.AsyncClient,
+    api_sessionmaker: async_sessionmaker[Any],
+) -> None:
+    """A period that exists as FILED is refused before any row is written
+    (HARD RULE 4) — auto-create never applies to an existing FILED period."""
+    headers, gstin, _user_id = await _tenant(client, api_sessionmaker)
+    supplier = make_gstin(state_code="27")
+    async with api_sessionmaker() as session:
+        period = await session.get(FilingPeriod, (gstin, FP))
+        assert period is not None
+        period.status = FilingStatus.FILED
+        await session.commit()
+
+    resp = await _post(
+        client,
+        headers,
+        gstin,
+        _csv(f"INV-8003,2026-09-09,{supplier},{gstin},1000.00,18,1234"),
+        "locked.csv",
+        confirm=True,
+    )
+
+    assert resp.status_code == 423, resp.text
+    assert resp.json()["error"]["code"] == "PERIOD_LOCKED"
+    assert await _drafts(api_sessionmaker, gstin) == []
 
 
 async def test_bulk_import_preview_still_works_with_no_write(

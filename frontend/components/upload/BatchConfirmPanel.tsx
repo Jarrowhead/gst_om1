@@ -32,7 +32,13 @@ const QUARANTINE_REASON_LABELS: Record<string, string> = {
 
 /** Paise -> ₹ display (the one sanctioned boundary crossing, at render). */
 function rupees(paise: number): string {
-  return `₹${(paise / 100).toFixed(2)}`;
+  // en-IN grouped, 2 decimals — same formatter the returns/itc/einvoice
+  // pages use (₹35,400.00, not a bare toFixed string).
+  const formatted = new Intl.NumberFormat("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(paise / 100);
+  return `₹${formatted}`;
 }
 
 export function BatchConfirmPanel({ gstin, fp }: { gstin: string; fp: string }) {
