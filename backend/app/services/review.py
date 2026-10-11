@@ -91,7 +91,7 @@ async def _ensure_open_period(
     period = await session.get(FilingPeriod, (gstin, fp))
     if period is None:
         raise ServiceError("filing period not found", 404, "PERIOD_NOT_FOUND")
-    if period.status == FilingStatus.FILED:
+    if period.status in (FilingStatus.FILED, FilingStatus.FROZEN):
         raise ServiceError("period is locked after filing", 423, "PERIOD_LOCKED")
     return period
 

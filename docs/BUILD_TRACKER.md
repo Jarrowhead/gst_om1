@@ -4,7 +4,7 @@
 **Stack:** Python 3.11 (FastAPI · SQLAlchemy · Alembic · PostgreSQL) backend · Next.js 16 + TypeScript (App Router · Tailwind · shadcn/ui) frontend  
 **Build mode:** 3-agent loop — Builder / Tester / Monitor. Every task is independently verified by the Tester (real command output: pytest, ruff, mypy, tsc, Playwright) before the Monitor may ADVANCE it. Backend and frontend are built together in the same loop.  
 **Last updated:** 2026-10-11 13:33 IST  
-**Progress:** **74 / 80 tasks done (92%)**
+**Progress:** **80 / 80 tasks done (100%)**
 
 ---
 
@@ -23,10 +23,10 @@
 | 8 | Product Completeness: Profile, Settings, Business Management & Filing-Ready Returns — Tony, 8 Oct | 11 | 11 | 0 | ✅ Complete |
 | 9 | QA Sweep Fixes: Review UX, Extraction Feedback, Empty States, Batch Upload & ITC Visibility — Tony, 9 Oct | 7 | 7 | 0 | ✅ Complete |
 | 10 | Bug Sweep: FY rollover, shell nav, coverage gate, checksum hint — Tony, 9 Oct | 5 | 5 | 0 | ✅ Complete |
-| 11 | Tier 1: Core Workflow Accelerators (bulk import, batch confirm, Rule 88A set-off) — recs 1/2/3, Tony 10 Oct | 4 | 3 | 1 | 🔄 In progress |
-| 12 | Tier 2: CA Practice & Enterprise Controls (maker-checker sign-off + vendor 2B notice) — recs 4/5, Tony 10 Oct | 3 | 0 | 3 | ⬜ Not started |
+| 11 | Tier 1: Core Workflow Accelerators (bulk import, batch confirm, Rule 88A set-off) — recs 1/2/3, Tony 10 Oct | 4 | 4 | 0 | ✅ Complete |
+| 12 | Tier 2: CA Practice & Enterprise Controls (maker-checker sign-off + vendor 2B notice) — recs 4/5, Tony 10 Oct | 3 | 3 | 0 | ✅ Complete |
 | 13 | Tier 3: Logistics Moat (E-Way Bill sandbox) — rec 6, Tony 10 Oct | 2 | 2 | 0 | ✅ Complete |
-| **Total** | | **80** | **74** | **6** | |
+| **Total** | | **80** | **80** | **0** | ✅ All Complete |
 
 ---
 
@@ -165,15 +165,15 @@
 | 11.1 | Bulk Excel/CSV import + column auto-mapper (upload tab) -> InvoiceDraft bulk ingestion (rec 1) | ✅ Done | `PHASE11_13_RECOMMENDATION_BUILD.md`, `EXTRACTION_SPEC.md`, `API_SPECIFICATION.md` |
 | 11.2 | 1-click Batch Confirm for clean high-confidence invoices (BATCH_CONFIRM audit) (rec 2) | ✅ Done | `PHASE11_13_RECOMMENDATION_BUILD.md`, `SECURITY_AND_ACCESS.md`, `API_SPECIFICATION.md` |
 | 11.3 | Rule 88A interactive set-off matrix + PMT-06 challan preview (GSTR-3B) (rec 3) | ✅ Done | `PHASE11_13_RECOMMENDATION_BUILD.md`, `API_SPECIFICATION.md`, `TECHNICAL_ARCHITECTURE.md` |
-| 11.4 | Phase-11 E2E + full regression (3-lens) + tracker regeneration | 🔄 In progress | `PHASE11_13_RECOMMENDATION_BUILD.md`, `VERIFICATION_SWEEP.md`, `TESTING_GUIDE.md` |
+| 11.4 | Phase-11 E2E + full regression (3-lens) + tracker regeneration | ✅ Done | `PHASE11_13_RECOMMENDATION_BUILD.md`, `VERIFICATION_SWEEP.md`, `TESTING_GUIDE.md` |
 
 ### Phase 12 — Tier 2: CA Practice & Enterprise Controls (maker-checker sign-off + vendor 2B notice) — recs 4/5, Tony 10 Oct
 
 | ID | Task | Status | Source docs |
 |---|---|---|---|
-| 12.1 | Maker-checker sign-off + soft period freeze/unlock (ADMIN approves; FILER prepares) (rec 4) | ⬜ Not started | `PHASE11_13_RECOMMENDATION_BUILD.md`, `SECURITY_AND_ACCESS.md`, `API_SPECIFICATION.md` |
-| 12.2 | 1-click GSTR-2B vendor discrepancy notice generator (formal + WhatsApp draft) (rec 5) | ⬜ Not started | `PHASE11_13_RECOMMENDATION_BUILD.md`, `API_SPECIFICATION.md` |
-| 12.3 | Phase-12 E2E + full regression (3-lens) + tracker regeneration | ⬜ Not started | `PHASE11_13_RECOMMENDATION_BUILD.md`, `VERIFICATION_SWEEP.md`, `TESTING_GUIDE.md` |
+| 12.1 | Maker-checker sign-off + soft period freeze/unlock (ADMIN approves; FILER prepares) (rec 4) | ✅ Done | `PHASE11_13_RECOMMENDATION_BUILD.md`, `SECURITY_AND_ACCESS.md`, `API_SPECIFICATION.md` |
+| 12.2 | 1-click GSTR-2B vendor discrepancy notice generator (formal + WhatsApp draft) (rec 5) | ✅ Done | `PHASE11_13_RECOMMENDATION_BUILD.md`, `API_SPECIFICATION.md` |
+| 12.3 | Phase-12 E2E + full regression (3-lens) + tracker regeneration | ✅ Done | `PHASE11_13_RECOMMENDATION_BUILD.md`, `VERIFICATION_SWEEP.md`, `TESTING_GUIDE.md` |
 
 ### Phase 13 — Tier 3: Logistics Moat (E-Way Bill sandbox) — rec 6, Tony 10 Oct
 

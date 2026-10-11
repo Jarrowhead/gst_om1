@@ -906,7 +906,7 @@ async def _ensure_open_period(
     """
     period = await session.get(FilingPeriod, (gstin, fp))
     if period is not None:
-        if period.status == FilingStatus.FILED:
+        if period.status in (FilingStatus.FILED, FilingStatus.FROZEN):
             raise ServiceError("period is locked after filing", 423, "PERIOD_LOCKED")
         return period
 
@@ -932,7 +932,7 @@ async def _ensure_open_period(
     if period is None:
         # Should never happen after a successful insert, but guard anyway.
         raise ServiceError("period concurrently created", 409, "CONFLICT")
-    if period.status == FilingStatus.FILED:
+    if period.status in (FilingStatus.FILED, FilingStatus.FROZEN):
         raise ServiceError("period is locked after filing", 423, "PERIOD_LOCKED")
     return period
 

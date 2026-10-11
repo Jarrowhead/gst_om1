@@ -1028,3 +1028,78 @@ export async function getGstAccountOverview(
 ): Promise<GstAccountOverviewDto> {
   return apiFetch(`/gst-accounts/${gstin}/overview`);
 }
+
+/** Period Freeze & Maker-Checker sign-off (Task 12.1). */
+export interface PeriodFreezeStatus {
+  status: string;
+  gstin: string;
+  fp: string;
+  is_frozen: boolean;
+  is_filed: boolean;
+  can_freeze: boolean;
+  can_unfreeze: boolean;
+}
+
+export async function getPeriodFreezeStatus(
+  gstin: string,
+  fp: string,
+): Promise<PeriodFreezeStatus> {
+  return apiFetch(`/gst-accounts/${gstin}/months/${fp}/freeze/status`);
+}
+
+export async function freezePeriod(
+  gstin: string,
+  fp: string,
+): Promise<{ status: string; gstin: string; fp: string }> {
+  return apiFetch(`/gst-accounts/${gstin}/months/${fp}/freeze`, {
+    method: "POST",
+  });
+}
+
+export async function unfreezePeriod(
+  gstin: string,
+  fp: string,
+): Promise<{ status: string; gstin: string; fp: string }> {
+  return apiFetch(`/gst-accounts/${gstin}/months/${fp}/unfreeze`, {
+    method: "POST",
+  });
+}
+
+/** 1-click GSTR-2B vendor discrepancy notice generator (Task 12.2). */
+export interface DiscrepancyNoticeIn {
+  recon_id?: string;
+  invoice_no?: string;
+  supplier_gstin?: string;
+  supplier_name?: string;
+  taxable_paise?: number;
+  tax_paise?: number;
+  invoice_date?: string;
+}
+
+export interface DiscrepancyNoticeOut {
+  gstin: string;
+  fp: string;
+  supplier_gstin: string;
+  supplier_name: string;
+  invoice_no: string;
+  invoice_date: string;
+  taxable_paise: number;
+  tax_paise: number;
+  total_paise: number;
+  statutory_citation: string;
+  formal_notice: string;
+  whatsapp_draft: string;
+  whatsapp_url: string;
+}
+
+export async function generateDiscrepancyNotice(
+  gstin: string,
+  fp: string,
+  body: DiscrepancyNoticeIn,
+): Promise<DiscrepancyNoticeOut> {
+  return apiFetch(`/gst-accounts/${gstin}/months/${fp}/itc/discrepancy-notice`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}

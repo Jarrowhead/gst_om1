@@ -87,10 +87,11 @@ class ExportPayType(enum.StrEnum):
 
 
 class FilingStatus(enum.StrEnum):
-    """Period lifecycle: OPEN -> READY_FOR_FILING -> FILED."""
+    """Period lifecycle: OPEN -> READY_FOR_FILING -> FROZEN -> FILED."""
 
     OPEN = "OPEN"
     READY_FOR_FILING = "READY_FOR_FILING"
+    FROZEN = "FROZEN"
     FILED = "FILED"
 
 

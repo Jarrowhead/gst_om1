@@ -100,6 +100,10 @@ class GstinAccess:
         if not self.can_invite_members:
             raise PermissionDenied("ADMIN role required to invite members")
 
+    def require_admin(self) -> None:
+        if not self.is_admin:
+            raise PermissionDenied("ADMIN role required on this GSTIN")
+
 
 async def resolve_gstin_access(
     session: AsyncSession, user_id: uuid.UUID, gstin: str

@@ -18,8 +18,12 @@ import {
   DocumentRow,
   fileGstr1ViaGsp,
   fileGstr3bViaGsp,
+  freezePeriod,
+  getPeriodFreezeStatus,
   GspFileResult,
   listDocuments,
+  PeriodFreezeStatus,
+  unfreezePeriod,
 } from "@/lib/api/client";
 import { BatchConfirmPanel } from "@/components/upload/BatchConfirmPanel";
 import { isTerminalStatus } from "@/lib/extraction/status";
@@ -51,6 +55,27 @@ export default function FileQueuePage() {
   const [busy, setBusy] = useState<"gstr1" | "gstr3b" | null>(null);
   const [fileResult, setFileResult] = useState<GspFileResult | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [freezeStatus, setFreezeStatus] = useState<PeriodFreezeStatus | null>(null);
+
+  async function handleFreeze() {
+    try {
+      await freezePeriod(gstin, fp);
+      const st = await getPeriodFreezeStatus(gstin, fp);
+      setFreezeStatus(st);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Freeze failed");
+    }
+  }
+
+  async function handleUnfreeze() {
+    try {
+      await unfreezePeriod(gstin, fp);
+      const st = await getPeriodFreezeStatus(gstin, fp);
+      setFreezeStatus(st);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Unlock failed");
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +89,12 @@ export default function FileQueuePage() {
         if (!cancelled) {
           setRows(data.content);
           hadRows = data.content.length > 0;
+        }
+        try {
+          const st = await getPeriodFreezeStatus(gstin, fp);
+          if (!cancelled) setFreezeStatus(st);
+        } catch {
+          // non-blocking
         }
         return data.content.some(
           (doc) => !isTerminalStatus(doc.job?.status ?? "UNKNOWN"),
@@ -155,6 +186,60 @@ export default function FileQueuePage() {
         GSTIN: <span className="font-mono">{gstin}</span> · Period:{" "}
         <span className="font-mono">{fp}</span>
       </p>
+
+      {/* Maker-Checker / Period Status banner (Task 12.1) */}
+      <section
+        className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900"
+        data-testid="period-control-banner"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+            Period Status:
+          </span>
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+              freezeStatus?.status === "FROZEN"
+                ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                : freezeStatus?.status === "FILED"
+                ? "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300"
+                : "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
+            }`}
+            data-testid="period-status-badge"
+          >
+            {freezeStatus?.status ?? "OPEN"}
+          </span>
+          {freezeStatus?.is_frozen && (
+            <span
+              className="text-xs text-amber-700 dark:text-amber-400"
+              data-testid="period-frozen-alert"
+            >
+              🔒 Locked for Maker-Checker review
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {freezeStatus?.can_freeze && (
+            <button
+              type="button"
+              onClick={handleFreeze}
+              className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+              data-testid="freeze-period-btn"
+            >
+              Freeze Period
+            </button>
+          )}
+          {freezeStatus?.can_unfreeze && (
+            <button
+              type="button"
+              onClick={handleUnfreeze}
+              className="rounded-md bg-slate-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
+              data-testid="unfreeze-period-btn"
+            >
+              Unlock Period
+            </button>
+          )}
+        </div>
+      </section>
 
       {error !== null && (
         <p className="mt-6 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">

@@ -100,7 +100,7 @@ export default function EInvoiceBoardPage() {
 
   return (
     <main className="mx-auto w-full max-w-4xl px-6 py-8">
-      <h1 className="text-2xl font-semibold">E-Invoices & E-Way Bills</h1>
+      <h1 className="text-2xl font-semibold">E-Invoices / IRN & E-Way Bills</h1>
       <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
         GSTIN: <span className="font-mono">{gstin}</span> · Period: <span className="font-mono">{fp}</span>
       </p>

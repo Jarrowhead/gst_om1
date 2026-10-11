@@ -26,7 +26,7 @@ _MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 async def _ensure_open_period(session: AsyncSession, gstin: str, fp: str) -> None:
     period = await session.get(FilingPeriod, (gstin, fp))
     if period is not None:
-        if period.status == FilingStatus.FILED:
+        if period.status in (FilingStatus.FILED, FilingStatus.FROZEN):
             raise ServiceError("period is locked after filing", 423, "PERIOD_LOCKED")
         return
 
@@ -51,7 +51,7 @@ async def _ensure_open_period(session: AsyncSession, gstin: str, fp: str) -> Non
     if period is None:
         # Should never happen after a successful insert, but guard anyway.
         raise ServiceError("period concurrently created", 409, "CONFLICT")
-    if period.status == FilingStatus.FILED:
+    if period.status in (FilingStatus.FILED, FilingStatus.FROZEN):
         raise ServiceError("period is locked after filing", 423, "PERIOD_LOCKED")
 
 

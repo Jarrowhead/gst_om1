@@ -30,7 +30,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useShell } from "@/components/shared/ShellContext";
 import {
   ApiError,
+  DiscrepancyNoticeOut,
   fetchMe,
+  generateDiscrepancyNotice,
   getItcReport,
   ITC_MATCH_STATUSES,
   reconcileItc,
@@ -110,6 +112,34 @@ export default function ItcPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [reconciling, setReconciling] = useState(false);
   const [filter, setFilter] = useState<ItcMatchStatus | "ALL">("ALL");
+  const [selectedNotice, setSelectedNotice] = useState<DiscrepancyNoticeOut | null>(null);
+  const [noticeLoading, setNoticeLoading] = useState(false);
+  const [copiedType, setCopiedType] = useState<"formal" | "whatsapp" | null>(null);
+
+  async function handleOpenNotice(row: ItcReportRow) {
+    setNoticeLoading(true);
+    try {
+      const res = await generateDiscrepancyNotice(gstin, fp, {
+        recon_id: row.id,
+        invoice_no: row.books?.invoice_no ?? row.gstr2b?.invoice_no,
+        supplier_gstin: row.books?.supplier_gstin ?? row.gstr2b?.supplier_gstin,
+        taxable_paise: row.books?.taxable_value_paise ?? row.gstr2b?.taxable_value_paise,
+        tax_paise: row.books?.total_paise ?? row.gstr2b?.total_paise,
+        invoice_date: row.books?.invoice_date ?? row.gstr2b?.invoice_date,
+      });
+      setSelectedNotice(res);
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Failed to generate notice");
+    } finally {
+      setNoticeLoading(false);
+    }
+  }
+
+  function copyText(text: string, type: "formal" | "whatsapp") {
+    void navigator.clipboard.writeText(text);
+    setCopiedType(type);
+    setTimeout(() => setCopiedType(null), 2000);
+  }
 
   const loadReport = useCallback(async () => {
     // The report is fetched in full; the status filter is applied below so the
@@ -489,27 +519,133 @@ export default function ItcPage() {
               {chaseRows.map((row) => (
                 <li
                   key={`chase-${row.id}`}
-                  className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200"
                   data-testid="itc-chase-row"
                 >
-                  <span className="font-mono text-xs">
-                    {row.books?.supplier_gstin ?? "—"}
-                  </span>
-                  {" · "}
-                  {row.books?.invoice_no ?? "—"}
-                  {" · "}
-                  {row.books === null ? "—" : rupees(row.books.taxable_value_paise)}
-                  {row.books !== null && (
-                    <>
-                      {" · tax "}
-                      {rupees(row.books.total_paise)}
-                    </>
-                  )}
+                  <div>
+                    <span className="font-mono text-xs">
+                      {row.books?.supplier_gstin ?? "—"}
+                    </span>
+                    {" · "}
+                    {row.books?.invoice_no ?? "—"}
+                    {" · "}
+                    {row.books === null ? "—" : rupees(row.books.taxable_value_paise)}
+                    {row.books !== null && (
+                      <>
+                        {" · tax "}
+                        {rupees(row.books.total_paise)}
+                      </>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleOpenNotice(row)}
+                    disabled={noticeLoading}
+                    className="rounded bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                    data-testid="vendor-notice-btn"
+                  >
+                    Notice →
+                  </button>
                 </li>
               ))}
             </ul>
           )}
         </section>
+
+      {/* 6. Discrepancy Notice Modal (Task 12.2) */}
+      {selectedNotice !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          data-testid="notice-modal"
+        >
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6 shadow-2xl dark:bg-slate-900">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                  Vendor Discrepancy Notice
+                </h3>
+                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                  {selectedNotice.statutory_citation}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedNotice(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                data-testid="close-notice-modal"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-800">
+              <span className="font-semibold">Invoice:</span> {selectedNotice.invoice_no} ·{" "}
+              <span className="font-semibold">Supplier:</span> {selectedNotice.supplier_gstin} ·{" "}
+              <span className="font-semibold">Tax:</span> {rupees(selectedNotice.tax_paise)}
+            </div>
+
+            {/* Formal Notice */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Formal Notice Copy
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => copyText(selectedNotice.formal_notice, "formal")}
+                  className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                  data-testid="copy-formal-notice"
+                >
+                  {copiedType === "formal" ? "Copied!" : "Copy Notice"}
+                </button>
+              </div>
+              <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap rounded border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                {selectedNotice.formal_notice}
+              </pre>
+            </div>
+
+            {/* WhatsApp Draft */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  WhatsApp Draft
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => copyText(selectedNotice.whatsapp_draft, "whatsapp")}
+                  className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                  data-testid="copy-whatsapp-draft"
+                >
+                  {copiedType === "whatsapp" ? "Copied!" : "Copy WhatsApp"}
+                </button>
+              </div>
+              <pre className="mt-2 whitespace-pre-wrap rounded border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                {selectedNotice.whatsapp_draft}
+              </pre>
+            </div>
+
+            {/* Action buttons */}
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setSelectedNotice(null)}
+                className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+              >
+                Close
+              </button>
+              <a
+                href={selectedNotice.whatsapp_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700"
+                data-testid="open-whatsapp-link"
+              >
+                Send via WhatsApp ↗
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
