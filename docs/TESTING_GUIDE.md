@@ -40,6 +40,7 @@ npx playwright test tests/task7-2-upload-to-output.spec.ts  # upload→output ha
 | `npx playwright test` | **33 passed** (1 worker) | needs backend :8084 up; `retries: 1` absorbs a contended first run |
 | `python scripts/e2e_phase8.py` | **ALL LENSES PASSED** (Code / Frontend / GST-domain) | the Phase-8 gate |
 | `python scripts/e2e_phase10.py` | **ALL LENSES PASSED** (Code / Frontend / GST-domain) | the Phase-10 gate |
+| `python scripts/e2e_phase11.py` | **ALL LENSES PASSED** (Code / Frontend / GST-domain) | the Phase-11 gate |
 
 > To get an unambiguous pass count when the pytest summary line vanishes, add `--junitxml=<absolute native path>` and parse the `testsuite` attributes. MSYS `$TMPDIR` is invisible to native python — use a `C:/...` path.
 
