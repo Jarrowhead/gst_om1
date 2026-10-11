@@ -26,6 +26,7 @@ import {
   generateReturns,
   getGstr1Export,
   getGstr3bExport,
+  getGstr3bSetoff,
   getHsnSummary,
   getMonthSummary,
   getReturnsValidation,
@@ -33,6 +34,8 @@ import {
   MonthSummaryDto,
   ReturnsGenerateResult,
   ReturnsValidationResult,
+  SetOffHeads,
+  SetOffResult,
 } from "@/lib/api/client";
 
 type ExportFormat = "json" | "xlsx";
@@ -80,6 +83,7 @@ export default function ReturnsPage() {
   const [validation, setValidation] = useState<ReturnsValidationResult | null>(
     null,
   );
+  const [setoff, setSetoff] = useState<SetOffResult | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [downloadingForm, setDownloadingForm] = useState<
     "gstr1" | "gstr3b" | null
@@ -98,19 +102,22 @@ export default function ReturnsPage() {
     let cancelled = false;
     async function load() {
       try {
-        const [s, r1, r3b, hsnData, validationData] = await Promise.all([
-          getMonthSummary(gstin, fp),
-          getGstr1Export(gstin, fp),
-          getGstr3bExport(gstin, fp),
-          getHsnSummary(gstin, fp),
-          getReturnsValidation(gstin, fp),
-        ]);
+        const [s, r1, r3b, hsnData, validationData, setoffData] =
+          await Promise.all([
+            getMonthSummary(gstin, fp),
+            getGstr1Export(gstin, fp),
+            getGstr3bExport(gstin, fp),
+            getHsnSummary(gstin, fp),
+            getReturnsValidation(gstin, fp),
+            getGstr3bSetoff(gstin, fp),
+          ]);
         if (!cancelled) {
           setSummary(s);
           setGstr1(r1);
           setGstr3b(r3b);
           setHsn(hsnData);
           setValidation(validationData);
+          setSetoff(setoffData);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof ApiError ? err.message : "failed to load");
@@ -405,12 +412,132 @@ export default function ReturnsPage() {
         )}
       </section>
 
+      {/* 3b. Rule 88A set-off matrix (task 11.3) */}
+      {setoff !== null && (
+        <section
+          className="mt-8 rounded-xl border border-slate-200 p-6 dark:border-slate-800"
+          data-testid="setoff-section"
+        >
+          <h2 className="font-semibold">4. Rule 88A set-off (GSTR-3B)</h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Statutory credit-utilisation order: IGST credit pays IGST first,
+            the remainder splits CGST then SGST; CGST/SGST/Cess credits settle
+            their own heads only.
+          </p>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div data-testid="setoff-credits">
+              <p className="text-xs text-slate-500">ITC available</p>
+              <HeadsGrid heads={setoff.itc_credits} />
+            </div>
+            <div data-testid="setoff-liability">
+              <p className="text-xs text-slate-500">Liability</p>
+              <HeadsGrid heads={setoff.liability} />
+            </div>
+          </div>
+
+          <div className="mt-4 overflow-x-auto">
+            <table
+              className="w-full text-left text-[13px]"
+              data-testid="setoff-matrix"
+            >
+              <thead>
+                <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700">
+                  <th className="py-2 pr-4 font-medium">Step</th>
+                  <th className="py-2 pr-4 font-medium">From</th>
+                  <th className="py-2 pr-4 font-medium">Applied to</th>
+                  <th className="py-2 pr-4 font-medium">Set off</th>
+                  <th className="py-2 pr-4 font-medium">Credit left</th>
+                  <th className="py-2 pr-4 font-medium">Liability left</th>
+                </tr>
+              </thead>
+              <tbody>
+                {setoff.matrix.steps.map((step) => (
+                  <tr
+                    key={step.order}
+                    className="border-b border-slate-100 dark:border-slate-800"
+                    data-testid="setoff-matrix-row"
+                  >
+                    <td className="py-2 pr-4">{step.order}</td>
+                    <td className="py-2 pr-4 font-mono">{step.from_head}</td>
+                    <td className="py-2 pr-4 font-mono">{step.to_head}</td>
+                    <td className="py-2 pr-4">{rupees(step.amount_paise)}</td>
+                    <td className="py-2 pr-4">{rupees(step.credit_after_paise)}</td>
+                    <td className="py-2 pr-4">
+                      {rupees(step.liability_after_paise)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* 3c. PMT-06 challan preview (task 11.3) */}
+      {setoff !== null && (
+        <section
+          className="mt-8 rounded-xl border border-slate-200 p-6 dark:border-slate-800"
+          data-testid="challan-section"
+        >
+          <h2 className="font-semibold">5. PMT-06 challan preview</h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            {setoff.challan.pmt06_note}
+          </p>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div data-testid="challan-deposit">
+              <p className="text-xs text-slate-500">Cash deposit (net payable)</p>
+              <HeadsGrid heads={setoff.challan.deposit} />
+            </div>
+            <div className="flex flex-col justify-center">
+              <p className="text-sm">
+                Total cash payable:{" "}
+                <span
+                  className="font-semibold"
+                  data-testid="challan-total-net"
+                >
+                  {rupees(setoff.challan.total_net_paise)}
+                </span>
+              </p>
+              {setoff.challan.zero_payable ? (
+                <p
+                  className="mt-2 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950 dark:text-green-300"
+                  data-testid="challan-zero-payable"
+                >
+                  No cash deposit required this period — ITC covers the full
+                  liability after Rule 88A set-off.
+                </p>
+              ) : (
+                <>
+                  <a
+                    href={setoff.challan.portal_url ?? "#"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex w-fit items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+                    data-testid="challan-portal-link"
+                  >
+                    Pay on the GST portal →
+                  </a>
+                  <p
+                    className="mt-2 text-xs text-slate-500 dark:text-slate-400"
+                    data-testid="challan-cpin-note"
+                  >
+                    {setoff.challan.cpin_note}
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* 4. Format picker + downloads */}
       <section
         className="mt-8 rounded-xl border border-slate-200 p-6 dark:border-slate-800"
         data-testid="download-section"
       >
-        <h2 className="font-semibold">4. Download</h2>
+        <h2 className="font-semibold">6. Download</h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           JSON is the IRP offline-tool upload format; Excel (.xlsx) carries the
           same numbers, rendered server-side from the same payload.
@@ -514,5 +641,30 @@ export default function ReturnsPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+/** Four-head (IGST/CGST/SGST/Cess) money grid — paise in, rupees at render. */
+function HeadsGrid({ heads }: { heads: SetOffHeads }) {
+  const entries: [string, number][] = [
+    ["IGST", heads.igst_paise],
+    ["CGST", heads.cgst_paise],
+    ["SGST", heads.sgst_paise],
+    ["Cess", heads.cess_paise],
+  ];
+  return (
+    <div className="mt-1 flex flex-wrap gap-2" data-testid="heads-grid">
+      {entries.map(([label, paise]) => (
+        <span
+          key={label}
+          className="rounded-md bg-slate-50 px-2 py-1 text-[13px] dark:bg-slate-900"
+        >
+          <span className="text-slate-500 dark:text-slate-400">{label}: </span>
+          <span className="font-medium" data-testid={`heads-grid-${label}`}>
+            {rupees(paise)}
+          </span>
+        </span>
+      ))}
+    </div>
   );
 }

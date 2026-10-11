@@ -412,6 +412,55 @@ export async function getReturnsValidation(
   return apiFetch(`/gst-accounts/${gstin}/months/${fp}/returns/validation`);
 }
 
+/* ---- Rule 88A set-off matrix + PMT-06 challan (task 11.3) ---- */
+
+/** One statutory step of the Rule 88A credit-utilisation order. */
+export interface SetOffStep {
+  order: number;
+  from_head: "IGST" | "CGST" | "SGST" | "CESS";
+  to_head: "IGST" | "CGST" | "SGST" | "CESS";
+  amount_paise: number;
+  credit_after_paise: number;
+  liability_after_paise: number;
+}
+
+/** Per-head money groups use the flat `*_paise` int shape (task 11.3). */
+export interface SetOffHeads {
+  igst_paise: number;
+  cgst_paise: number;
+  sgst_paise: number;
+  cess_paise: number;
+}
+
+export interface ChallanSummary {
+  pmt06_note: string;
+  deposit: SetOffHeads;
+  total_net_paise: number;
+  zero_payable: boolean;
+  portal_url: string | null;
+  /** Always null from the API — a CPIN is generated only on the GST portal. */
+  cpin: null;
+  cpin_note: string;
+}
+
+export interface SetOffResult {
+  gstin: string;
+  fp: string;
+  itc_credits: SetOffHeads;
+  liability: SetOffHeads;
+  credit_leftover: SetOffHeads;
+  matrix: { steps: SetOffStep[] };
+  net_cash: SetOffHeads;
+  challan: ChallanSummary;
+}
+
+export async function getGstr3bSetoff(
+  gstin: string,
+  fp: string,
+): Promise<SetOffResult> {
+  return apiFetch(`/gst-accounts/${gstin}/months/${fp}/gstr3b/setoff`);
+}
+
 /**
  * Download the server-rendered .xlsx for a return form. The file is built
  * in-process by the backend (openpyxl, OSS) from the SAME payload as the

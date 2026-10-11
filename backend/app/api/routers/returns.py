@@ -23,6 +23,7 @@ from app.services.returns.pipeline import (
     load_gstr3b_payload,
     load_return_payload,
 )
+from app.services.returns.setoff import compute_rule88a_setoff
 from app.services.returns.validation import validate_period_for_filing
 from app.services.returns.xlsx_export import render_return_xlsx
 
@@ -100,6 +101,40 @@ async def gstr1_hsn_summary(
         "success": True,
         "data": {"rows": rows, "totals": hsn_summary_totals(rows)},
     }
+
+
+@router.get("/gstr3b/setoff")
+async def gstr3b_setoff(
+    gstin: str,
+    fp: str,
+    access: Annotated[GstinAccess, Depends(require_gstin_access("gstin"))],
+    session: SessionDep,
+) -> dict[str, Any]:
+    """Task 11.3: Rule 88A set-off matrix + PMT-06 challan summary.
+
+    A pure read over the single-source GSTR-3B payload: the statutory
+    set-off order (IGST first, remainder split CGST/SGST, then own-head
+    CGST/SGST/Cess), per-head net cash payable, and the challan preview
+    card. No CPIN is ever fabricated — a CPIN is generated on the GST
+    portal and the payload states that explicitly.
+    """
+    payload = await load_gstr3b_payload(session, gstin, fp)
+    result = compute_rule88a_setoff(payload, gstin=gstin, fp=fp)
+    return {"success": True, "data": result}
+
+
+@router.get("/gstr3b/challan")
+async def gstr3b_challan(
+    gstin: str,
+    fp: str,
+    access: Annotated[GstinAccess, Depends(require_gstin_access("gstin"))],
+    session: SessionDep,
+) -> dict[str, Any]:
+    """Task 11.3: the PMT-06 challan summary alone (same payload, challan
+    subsection) — convenient for the payment card without the full matrix."""
+    payload = await load_gstr3b_payload(session, gstin, fp)
+    result = compute_rule88a_setoff(payload, gstin=gstin, fp=fp)
+    return {"success": True, "data": result["challan"]}
 
 
 @router.get("/returns/validation")
