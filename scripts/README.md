@@ -9,7 +9,7 @@ Run everything from the **repo root** with the backend venv unless noted.
 | `app_tour.cjs` | Drive the real UI (login→upload→review→confirm→returns), write screenshots + `tour-report.json` | `cd frontend && NODE_PATH="$PWD/node_modules" node ../scripts/app_tour.cjs` |
 | `generate_tracker.py` | Regenerate `docs/BUILD_TRACKER.md` from `build/plan.json` + `build/state.json` | `python scripts/generate_tracker.py` |
 | `build_loop.py` | The 3-agent build loop (Builder/Tester/Monitor). Build is **complete** — do not relaunch unless re-testing | `python scripts/build_loop.py` |
-| `e2e_phase0..10.py` | Per-phase E2E harnesses (phases 0–10), each a 3-lens gate (Code / Frontend / GST-domain) — expects backend :8084 up. `e2e_phase10.py` is the current gate (covers 10.1 FY rollover, 10.2 shell nav, 10.3 coverage, 10.4 live checksum) | python scripts/e2e_phase10.py |
+| `e2e_phase0..11.py` | Per-phase E2E harnesses (phases 0–11), each a 3-lens gate (Code / Frontend / GST-domain) — expects backend :8084 up. `e2e_phase11.py` is the current gate (covers 11.1 bulk import, 11.2 batch confirm, 11.3 Rule 88A set-off) | python scripts/e2e_phase11.py |
 | `measure_extraction.py` | Extraction accuracy harness against the golden set | `backend/.venv/Scripts/python.exe scripts/measure_extraction.py` |
 | `generate_golden_set.py` / `generate_predictions.py` | Golden-set tooling | see file docstrings |
 | `backup_production.py` | Self-hosted backup routine | see file docstring |
