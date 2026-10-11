@@ -17,6 +17,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +45,7 @@ def run_cmd(cmd: list[str], cwd: Path | None = None) -> tuple[int, str]:
         text=True,
         encoding="utf-8",
         errors="replace",
+        shell=(os.name == "nt"),
     )
     out = (p.stdout or "") + (p.stderr or "")
     return p.returncode, out.strip()
@@ -87,15 +89,14 @@ def main() -> int:
     # -------------------------------------------------------------
     print("\n[Lens 2: Frontend & User Flow]")
 
-    tsc_cmd = str(FRONTEND / "node_modules/.bin/tsc.cmd")
-    code, out = run_cmd(["cmd", "/c", tsc_cmd, "--noEmit"], cwd=FRONTEND)
+    code, out = run_cmd(["npx", "tsc", "--noEmit"], cwd=FRONTEND)
     if code == 0:
         print("  OK: TypeScript compile clean (0 errors)")
     else:
         print("  FAIL: TypeScript errors:\n" + out)
         failures.append("Lens 2: TypeScript")
 
-    code, out = run_cmd(["cmd", "/c", "npm", "run", "lint"], cwd=FRONTEND)
+    code, out = run_cmd(["npm", "run", "lint"], cwd=FRONTEND)
     if code == 0:
         print("  OK: ESLint clean")
     else:
