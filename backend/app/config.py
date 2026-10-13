@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     extraction_llm_max_tokens_per_doc: int = 8192
     extraction_llm_max_docs_per_day: int = 5000
 
+    # Google Gemini Flash extraction (Free tier with API key)
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+
     # OCR / preprocess knobs (EXTRACTION_SPEC.md §2/§9).
     extraction_blur_threshold_photo: float = 80.0
     extraction_blur_threshold_whatsapp: float = 60.0

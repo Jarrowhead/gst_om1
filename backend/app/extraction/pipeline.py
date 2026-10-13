@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from app.config import Settings, get_settings
 from app.extraction.llm import LLMClient, LLMExtractionError
 from app.extraction.models import ExtractionResult
-from app.extraction.ocr import EmptyOCRError, OCRProvider, extract_text, extract_text_many
+from app.extraction.ocr import OCRError, OCRProvider, extract_text, extract_text_many
 from app.extraction.preprocess import preprocess, preprocess_many
 from app.extraction.validate import validate_extraction
 
@@ -65,16 +65,30 @@ async def run_pipeline(
             preproc_report=report,
         )
 
-    # 2. OCR
+    # 2. OCR / Native PDF extraction
     try:
-        ocr_text = extract_text(
-            report.output_data if report.output_data is not None else data,
-            report.output_mime_type if report.output_data is not None else mime_type,
-            source,
-            ocr_provider=ocr_provider,
-            dpi=settings.extraction_ocr_dpi,
-        )
-    except EmptyOCRError as exc:
+        from app.extraction.ocr import _extract_pdf_text
+        if mime_type == "application/pdf":
+            native_text = _extract_pdf_text(data)
+            if len("".join(native_text.split())) >= 15:
+                ocr_text = native_text
+            else:
+                ocr_text = extract_text(
+                    report.output_data if report.output_data is not None else data,
+                    report.output_mime_type if report.output_data is not None else mime_type,
+                    source,
+                    ocr_provider=ocr_provider,
+                    dpi=settings.extraction_ocr_dpi,
+                )
+        else:
+            ocr_text = extract_text(
+                report.output_data if report.output_data is not None else data,
+                report.output_mime_type if report.output_data is not None else mime_type,
+                source,
+                ocr_provider=ocr_provider,
+                dpi=settings.extraction_ocr_dpi,
+            )
+    except OCRError as exc:
         return ExtractionResult(
             error=str(exc),
         )
@@ -85,7 +99,8 @@ async def run_pipeline(
         )
 
     # 3. LLM extraction
-    client = llm_client or LLMClient(settings)
+    from app.extraction.llm import get_llm_client
+    client = llm_client or get_llm_client()
     try:
         raw = await client.extract(ocr_text)
         raw["doc_id"] = doc_id
@@ -162,12 +177,13 @@ async def run_pipeline_many(
             ocr_provider=ocr_provider,
             dpi=settings.extraction_ocr_dpi,
         )
-    except EmptyOCRError as exc:
+    except OCRError as exc:
         return ExtractionResult(
             error=str(exc),
         )
 
-    client = llm_client or LLMClient(settings)
+    from app.extraction.llm import get_llm_client
+    client = llm_client or get_llm_client()
     try:
         raw = await client.extract(ocr_text)
         raw["doc_id"] = doc_id

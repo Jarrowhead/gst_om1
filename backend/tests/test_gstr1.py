@@ -159,6 +159,44 @@ def test_gstr1_generator_with_notes():
     assert payload["cdnr"][0]["ctin"] == buyer_gstin
 
 
+def test_gstr1_unregistered_buyer_never_enters_b2b():
+    """B2C (unregistered buyer) must NOT land in `b2b` with ctin='URP'.
+
+    GSTR-1 Table 4 (b2b) requires a real 15-char counterparty GSTIN. An
+    unregistered sale belongs in b2cs (Table 7) / b2cl (Table 5), never in
+    b2b — a 'URP' ctin would be rejected by the GST offline utility.
+    """
+    supplier_gstin = make_gstin(state_code="29")
+    fp = "092026"
+
+    line = MockInvoiceLine(
+        hsn_sac="998314",
+        gst_rate=18.0,
+        taxable_value_minor=100000,  # ₹1,000.00
+        cgst_minor=9000,
+        sgst_minor=9000,
+        igst_minor=0,
+    )
+    inv = MockInvoice(
+        invoice_no="INV-2026-100",
+        invoice_date=date(2026, 9, 15),
+        total_value_minor=118000,
+        place_of_supply="29",
+        buyer_gstin=None,  # unregistered retail sale
+        lines=[line],
+    )
+
+    payload = build_gstr1_from_invoices(supplier_gstin, fp, [inv])
+
+    valid, err = validate_gstr1_payload(payload)
+    assert valid is True, f"Validation failed: {err}"
+    # The invoice must not be smuggled into b2b under a fake 'URP' ctin.
+    assert payload["b2b"] == [], f"URP leaked into b2b: {payload['b2b']}"
+    # TODO(follow-up): unregistered sales should route into b2cs (Table 7) /
+    # b2cl (Table 5, > ₹2.5L inter-state) — currently they are dropped, not
+    # corrupted. That routing is a separate task and is NOT asserted here.
+
+
 def test_self_validator_rejects_invalid_payload():
     # Invalid GSTIN length
     bad_data = {

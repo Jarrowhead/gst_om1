@@ -13,6 +13,8 @@ import { usePathname, useRouter } from "next/navigation";
 
 import type { GstinRefDto } from "@/lib/api/client";
 
+import { GstinSwitcher } from "./GstinSwitcher";
+
 const DEFAULT_FP = "092026";
 
 /** GSTIN-scoped workspaces: /app/<section>/<gstin>[/<fp>[/<docId>]]. */
@@ -165,24 +167,15 @@ export function ShellNav({
       </div>
       <div className="flex items-center gap-3">
         {gstAccounts.length > 0 ? (
-          <select
-            data-testid="gstin-switcher"
+          <GstinSwitcher
+            accounts={gstAccounts}
             value={switcherValue}
-            aria-label="Active GSTIN"
-            onChange={(e) => {
-              const g = e.target.value;
+            onSelect={(g) => {
               if (g !== "") {
                 router.push(`/app/${sectionFromPath(pathname)}/${g}/${fp}`);
               }
             }}
-            className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-          >
-            {gstAccounts.map((acc) => (
-              <option key={acc.gstin} value={acc.gstin}>
-                {acc.gstin}
-              </option>
-            ))}
-          </select>
+          />
         ) : null}
         <span
           className="text-sm text-slate-600 dark:text-slate-300"

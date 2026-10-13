@@ -106,7 +106,7 @@ async function expectHeaderOnce(page: Page, gstin: string): Promise<void> {
   await expect(page.getByTestId("signout-btn")).toHaveCount(1);
   const switcher = page.getByTestId("gstin-switcher");
   await expect(switcher).toHaveCount(1);
-  await expect(switcher).toHaveValue(gstin);
+  await expect(switcher).toHaveText(gstin);
 }
 
 test.describe("10.2 shared client shell layout", () => {
@@ -192,8 +192,15 @@ test.describe("10.2 shared client shell layout", () => {
     // (single account: selecting it again is a no-op navigation).
     const switcher = page.getByTestId("gstin-switcher");
     await expect(switcher).toBeVisible();
-    await expect(switcher).toHaveValue(gstin);
-    await switcher.selectOption(gstin);
+    await expect(switcher).toHaveText(gstin);
+
+    // Opening the switcher exposes a search bar; typing filters the list down
+    // to the matching GSTIN before it is picked.
+    await switcher.click();
+    const search = page.getByTestId("gstin-switcher-search");
+    await expect(search).toBeVisible();
+    await search.fill(gstin);
+    await page.getByTestId(`gstin-option-${gstin}`).click();
     await expect(page).toHaveURL(
       new RegExp(`/app/returns/${gstin}/${FP}$`),
       { timeout: 15_000 },

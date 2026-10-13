@@ -221,5 +221,68 @@ class LLMClient:
             raise LLMExtractionError(f"LLM JSON schema invalid: {exc}") from exc
 
 
+
+
+class GeminiFlashLLMClient(LLMClient):
+    """Google Gemini Flash LLM extraction client with free-tier structured JSON.
+
+    Raises ``LLMExtractionError`` when the API key is missing — extraction is
+    never fabricated offline.
+    """
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        super().__init__(settings)
+        self.api_key = self.settings.gemini_api_key
+        self.gemini_model = getattr(self.settings, "gemini_model", "gemini-2.0-flash")
+
+    async def extract(self, ocr_text: str) -> dict[str, Any]:
+        if not self.api_key:
+            raise LLMExtractionError(
+                "Gemini API key not configured — set GST_GEMINI_API_KEY"
+            )
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.gemini_model}:generateContent?key={self.api_key}"
+        prompt_content = f"{LLM_SYSTEM_PROMPT}\n\nExtract strict JSON from OCR text:\n{ocr_text}"
+        payload = {
+            "contents": [
+                {
+                    "parts": [{"text": prompt_content}]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.0,
+                "responseMimeType": "application/json",
+            },
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            try:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise LLMExtractionError(
+                    f"Gemini HTTP {exc.response.status_code}: {exc.response.text}"
+                ) from exc
+            except httpx.RequestError as exc:
+                raise LLMExtractionError(f"Gemini request failed: {exc}") from exc
+
+        data = response.json()
+        try:
+            cand = data["candidates"][0]
+            part = cand["content"]["parts"][0]
+            raw_text = part["text"]
+            parsed = json.loads(raw_text)
+            parsed["_llm_meta"] = {
+                "model": self.gemini_model,
+                "provider": "google-gemini-flash",
+            }
+            return parsed
+        except (KeyError, IndexError, json.JSONDecodeError) as exc:
+            raise LLMExtractionError(f"Gemini output parsing failed: {exc}") from exc
+
+
 def get_llm_client() -> LLMClient:
-    return LLMClient()
+    settings = get_settings()
+    if getattr(settings, "gemini_api_key", None):
+        return GeminiFlashLLMClient(settings)
+    return LLMClient(settings)

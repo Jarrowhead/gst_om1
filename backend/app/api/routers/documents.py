@@ -8,6 +8,7 @@ against that document's GSTIN — a cross-tenant doc id must resolve to 404.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Annotated, Any
 
@@ -47,6 +48,8 @@ from app.services.review import (
     update_draft,
 )
 from app.services.storage import presigned_view_url
+
+_LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(tags=["documents"])
 
@@ -295,4 +298,60 @@ async def get_doc_image(
             "page": page,
             "page_count": page_count,
         },
+    }
+
+
+
+@router.post("/gst-accounts/{gstin}/months/{fp}/documents/batch")
+async def upload_documents_batch(
+    gstin: str,
+    fp: Annotated[str, Path(pattern=FP_REGEX, description="Filing period MMYYYY")],
+    access: Annotated[GstinAccess, Depends(require_gstin_access("gstin"))],
+    session: SessionDep,
+    user_id: UserDep,
+    capture_source: Annotated[str, Form()],
+    files: Annotated[list[UploadFile], File()],
+    doc_type: Annotated[str, Form()] = "UNCLASSIFIED",
+) -> dict[str, Any]:
+    """Upload multiple documents in a single request. Each file/invoice gets its own queue job."""
+    if not access.can_write:
+        from app.core.access import PermissionDenied
+        raise PermissionDenied("upload requires FILER or ADMIN on the GSTIN")
+
+    from app.services.documents import store_batch_documents
+    results = await store_batch_documents(
+        session,
+        access=access,
+        fp=fp,
+        files=files,
+        capture_source=capture_source,
+        doc_type=doc_type,
+        uploaded_by=user_id,
+    )
+    return {"success": True, "data": results, "count": len(results["created"])}
+
+
+@router.get("/gst-accounts/{gstin}/months/{fp}/extraction/queue-status")
+async def get_extraction_queue_status(
+    gstin: str,
+    fp: str,
+    access: Annotated[GstinAccess, Depends(require_gstin_access("gstin"))],
+    session: SessionDep,
+) -> dict[str, Any]:
+    """Return Redis queue length and pending/processing job counts."""
+    q_len = 0
+    try:
+        from app.core.auth.redis_client import get_redis
+
+        q_len = await get_redis().llen("extraction:queue")
+    except Exception as exc:  # noqa: BLE001  best-effort probe, never 500
+        _LOGGER.warning("extraction queue-status probe failed: %s", exc)
+
+    return {
+        "success": True,
+        "data": {
+            "queue_depth": q_len,
+            "gstin": gstin,
+            "fp": fp,
+        }
     }

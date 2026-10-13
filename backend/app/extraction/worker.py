@@ -228,23 +228,41 @@ def _detect_mime(data: bytes) -> str:
 
 
 async def _poll_once(redis_client: redis.Redis) -> str | None:
-    """Pop one job id from the extraction queue."""
-    item = await redis_client.blpop("extraction:queue", timeout=5)
-    if item is None:
+    """Pop one job id from the extraction queue with timeout resilience."""
+    try:
+        item = await redis_client.blpop("extraction:queue", timeout=2)
+        if item is None:
+            return None
+        return item[1].decode() if isinstance(item[1], bytes) else str(item[1])
+    except (TimeoutError, Exception):
         return None
-    return item[1].decode() if isinstance(item[1], bytes) else str(item[1])
 
 
 async def poll_loop(
     *,
     ocr_provider: OCRProvider | None = None,
     llm_client: LLMClient | None = None,
+    concurrency: int = 4,
 ) -> None:
-    """Long-running poll: fetch from Redis, run, persist, repeat."""
+    """Long-running poll: bounded parallel workers via asyncio.Semaphore."""
+    import asyncio
     settings = get_settings()
-    redis_client = redis.from_url(settings.redis_url)
+    redis_client = redis.from_url(settings.redis_url, protocol=2)
+    sem = asyncio.Semaphore(concurrency)
+    active_tasks: set[asyncio.Task] = set()
+
+    async def _handle_job(jid: uuid.UUID):
+        async with sem:
+            try:
+                await run_job(jid, ocr_provider=ocr_provider, llm_client=llm_client)
+            except Exception:
+                _LOGGER.exception("job %s failed in worker", jid)
+
     try:
         while True:
+            if sem.locked():
+                await asyncio.sleep(0.1)
+                continue
             raw = await _poll_once(redis_client)
             if raw is None:
                 continue
@@ -253,12 +271,13 @@ async def poll_loop(
             except ValueError:
                 _LOGGER.error("invalid job id in queue: %s", raw)
                 continue
-            try:
-                await run_job(job_id, ocr_provider=ocr_provider, llm_client=llm_client)
-            except Exception:
-                _LOGGER.exception("job %s failed", job_id)
+            task = asyncio.create_task(_handle_job(job_id))
+            active_tasks.add(task)
+            task.add_done_callback(active_tasks.discard)
     finally:
-        await redis_client.close()
+        if active_tasks:
+            await asyncio.gather(*active_tasks, return_exceptions=True)
+        await redis_client.aclose()
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:

@@ -54,10 +54,17 @@ def _image_from_bytes(data: bytes) -> Image.Image:
 
 def _default_tesseract_ocr(image: Image.Image) -> str:
     """Tesseract OCR with a standard config for printed invoices."""
-    import pytesseract  # type: ignore[import-untyped]
-
-    config = r"--oem 3 --psm 6"
-    return str(pytesseract.image_to_string(image, config=config))
+    try:
+        import pytesseract  # type: ignore[import-untyped]
+        config = r"--oem 3 --psm 6"
+        return str(pytesseract.image_to_string(image, config=config))
+    except Exception as exc:
+        # Never fabricate OCR text: a missing tesseract binary is a hard error,
+        # surfaced as a FAILED job, so a real invoice is never replaced with a
+        # synthetic one.
+        raise OCRError(
+            "tesseract binary is not available; install it or configure an OCR provider"
+        ) from exc
 
 
 def extract_text(

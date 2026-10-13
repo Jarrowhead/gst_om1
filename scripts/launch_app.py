@@ -240,6 +240,19 @@ def seed_demo():
         print(f"[seed] error: {e}")
 
 
+
+def start_worker():
+    log_path = REPO_ROOT / "tools/worker.log"
+    log_file = open(log_path, "a", encoding="utf-8")
+    print("[worker] starting extraction worker in poll mode...")
+    p = subprocess.Popen(
+        [PYTHON_EXE, "-m", "app.extraction.worker", "--poll"],
+        cwd=str(BACKEND_DIR),
+        stdout=log_file,
+        stderr=log_file,
+    )
+    procs.append(p)
+
 def start_frontend():
     if is_port_open(FRONTEND_PORT):
         print(f"[frontend] port {FRONTEND_PORT} already open")
@@ -264,6 +277,7 @@ def main():
         start_minio()
         init_db_and_minio()
         start_backend()
+        start_worker()
         seed_demo()
         start_frontend()
 

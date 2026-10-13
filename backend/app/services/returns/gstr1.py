@@ -267,8 +267,15 @@ def build_gstr1_from_invoices(
             cdnur_list.append(cdnur_item)
 
     b2b_list = [
-        Gstr1B2BEntry(ctin=ctin, inv=invs) for ctin, invs in b2b_map.items() if ctin != "URP"
+        Gstr1B2BEntry(ctin=ctin, inv=invs)
+        for ctin, invs in b2b_map.items()
+        if ctin != "URP"
     ]
+    # NOTE: unregistered (B2C) sales are deliberately kept out of `b2b` — a
+    # "URP" ctin is 3 chars and would be rejected by the GST offline utility.
+    # Routing them into b2cs (Table 7) / b2cl (Table 5, > ₹2.5L inter-state)
+    # is a separate, still-open task; for now they must NOT corrupt the B2B
+    # table with an invalid counterparty GSTIN.
     cdnr_list = [
         Gstr1CdnrEntry(ctin=ctin, nt=nts) for ctin, nts in cdnr_map.items()
     ]

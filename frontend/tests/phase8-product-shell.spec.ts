@@ -203,8 +203,9 @@ test.describe("Phase-8 product shell — nav reachability audit", () => {
     // (single account: selecting it again is a no-op navigation).
     const switcher = page.getByTestId("gstin-switcher");
     await expect(switcher).toBeVisible({ timeout: 15_000 });
-    await expect(switcher).toHaveValue(gstin);
-    await switcher.selectOption(gstin);
+    await expect(switcher).toHaveText(gstin);
+    await switcher.click();
+    await page.getByTestId(`gstin-option-${gstin}`).click();
     await expect(page).toHaveURL(/\/app\/upload\//, { timeout: 15_000 });
   });
 });

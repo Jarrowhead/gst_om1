@@ -36,7 +36,7 @@ import {
 } from "@/lib/extraction/status";
 
 /** Max files per batch (doc: small batch ≤10 files). */
-export const MAX_BATCH_FILES = 10;
+export const MAX_BATCH_FILES = 200;
 /** Same accept list as the single-file card. */
 export const ACCEPTED_UPLOAD_TYPES = ".pdf,image/jpeg,image/png";
 
@@ -128,7 +128,10 @@ export function BatchUploadQueue({ gstin, fp }: { gstin: string; fp: string }) {
 
   /** Upload + trigger extraction for each target row, sequentially. */
   async function runQueue(targets: BatchRow[]) {
-    for (const target of targets) {
+    const CONCURRENCY = 4;
+    let nextIdx = 0;
+
+    async function processTarget(target: BatchRow) {
       setRows((prev) =>
         prev.map((r) =>
           r.id === target.id ? { ...r, status: "UPLOADING", error: null } : r,
@@ -160,8 +163,7 @@ export function BatchUploadQueue({ gstin, fp }: { gstin: string; fp: string }) {
             ),
           );
         } catch {
-          // Extraction trigger/read failed: the row keeps its seeded status
-          // and the 2s poller resolves the real one.
+          // Extraction trigger/read failed
         }
       } catch (err) {
         const message = err instanceof ApiError ? err.message : "upload failed";
@@ -174,6 +176,18 @@ export function BatchUploadQueue({ gstin, fp }: { gstin: string; fp: string }) {
         );
       }
     }
+
+    async function worker() {
+      while (nextIdx < targets.length) {
+        const target = targets[nextIdx++];
+        if (target) {
+          await processTarget(target);
+        }
+      }
+    }
+
+    const workerCount = Math.min(CONCURRENCY, targets.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
   }
 
   /** Add picked files to the queue and start uploading them. */
@@ -237,8 +251,7 @@ export function BatchUploadQueue({ gstin, fp }: { gstin: string; fp: string }) {
     >
       <h2 className="text-sm font-semibold">Batch upload</h2>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        Select or drop up to {MAX_BATCH_FILES} files — each is uploaded and
-        extracted one at a time with its own status row.
+        Select or drop up to {MAX_BATCH_FILES} files — uploaded in parallel and processed via async worker queue.
       </p>
 
       <div className="mt-4">
