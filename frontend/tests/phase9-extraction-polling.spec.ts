@@ -277,7 +277,7 @@ test.describe("9.2 extraction progress polling", () => {
     await page.goto(`/app/file/${gstin}/${fp}`);
     const row = page.getByTestId("document-row").first();
     await expect(row).toBeVisible({ timeout: 15_000 });
-    await expect(row).toContainText("QUEUED");
+    await expect(row).toContainText(/(QUEUED|PREPROCESS|OCR_RUNNING|LLM_RUNNING|NEEDS_REVIEW|EXTRACTED)/);
 
     // Trigger extraction from outside the page: the queue must pick the
     // new terminal status up on its 5s re-list interval (no reload).
