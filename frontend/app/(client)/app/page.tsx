@@ -174,7 +174,7 @@ export default function ClientHomePage() {
         // non-fatal — the cards render without a grid and the card error
         // surface (toast/inline per FRONTEND_SPEC §4) stays for profile
         // failures; a per-GSTIN fetch error just leaves that grid absent.
-        for (const acc of data.gst_accounts) {
+        for (const acc of data.gst_accounts ?? []) {
           try {
             const overview = await getGstAccountOverview(acc.gstin);
             if (!cancelled) {
@@ -224,7 +224,7 @@ export default function ClientHomePage() {
         Registration month cards and deadlines land with the month workspace.
       </p>
       <div className="mt-8 grid gap-4">
-        {me !== null && me.gst_accounts.length > 0 ? (
+        {me !== null && (me.gst_accounts?.length ?? 0) > 0 ? (
           me.gst_accounts.map((acc) => (
             <div
               key={acc.gstin}

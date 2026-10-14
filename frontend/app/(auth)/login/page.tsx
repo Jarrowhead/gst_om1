@@ -63,6 +63,29 @@ export default function LoginPage() {
     }
   }
 
+  async function quickDemoLogin() {
+    setBusy(true);
+    setError(null);
+    try {
+      const email = "demo.tony@example.com";
+      let res;
+      try {
+        res = await requestOtp(email, "LOGIN");
+      } catch {
+        res = await requestOtp(email, "REGISTER");
+      }
+      const code = res.dev_otp ?? "123456";
+      const ver = await verifyOtp(email, code);
+      setAccessToken(ver.access_token);
+      setSessionCookie();
+      setDone(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Quick demo sign-in failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   useEffect(() => {
     if (done) {
       router.push("/app");
@@ -152,6 +175,27 @@ export default function LoginPage() {
             {error}
           </p>
         )}
+
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-slate-200 dark:border-slate-800" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-white px-2 text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+              Or instant access
+            </span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          disabled={busy}
+          onClick={quickDemoLogin}
+          className="w-full rounded-md border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-900 dark:bg-indigo-950/60 dark:text-indigo-300 dark:hover:bg-indigo-900/80 transition-colors"
+          data-testid="skip-login-button"
+        >
+          ⚡ Skip Login &amp; Open App (Demo)
+        </button>
 
         <p className="mt-6 text-sm text-slate-500 dark:text-slate-400">
           New here?{" "}

@@ -34,6 +34,7 @@ GST return filing platform for Indian businesses and CA firms — capture purcha
 
 | Doc | Contents |
 |---|---|
+| [SESSION_SUMMARY_2026_10_14.md](docs/SESSION_SUMMARY_2026_10_14.md) | **Latest updates (Oct 14, 2026)** — Dynamic launcher, instant demo login, unified upload UI, test suites |
 | [AI_HANDOFF.md](docs/AI_HANDOFF.md) | **Start here** — boot, seed, run, feature inventory, caveats |
 | [TESTING_GUIDE.md](docs/TESTING_GUIDE.md) | Quality gates, test inventory, E2E + API-probe recipes, GST-domain checks |
 | [BUILD_TRACKER.md](docs/BUILD_TRACKER.md) | Live progress — phase summary, full task ledger |
@@ -53,6 +54,18 @@ GST return filing platform for Indian businesses and CA firms — capture purcha
 
 ## Quick start
 
+### One-Click Launch (Recommended)
+Run the root launcher which checks and spins up PostgreSQL, Redis, MinIO, FastAPI backend, and Next.js frontend:
+```cmd
+launch.bat
+```
+*(Or in PowerShell: `.\launch.ps1` or `python scripts\launch_app.py`)*
+
+Once running:
+- Open `http://localhost:9094/login`
+- Click **"⚡ Skip Login & Open App (Demo)"** for instant one-click login to the workspace dashboard!
+
+### Manual Step-by-Step
 ```bash
 # 1. Infrastructure — PostgreSQL:5436, Redis:6380, MinIO:9001
 backend/.venv/Scripts/python.exe scripts/bootstrap_stack.py --check   # expect 3x OK
@@ -65,9 +78,6 @@ cd frontend && npm run dev -- --port 9094
 
 # 4. Seed a demo user + GSTINs
 backend/.venv/Scripts/python.exe scripts/seed_demo.py
-
-# 5. Guided tour with screenshots
-cd frontend && NODE_PATH="D:/gst_filing_app/frontend/node_modules" node ../scripts/app_tour.cjs
 ```
 
 ## Quality gates

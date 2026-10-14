@@ -1,6 +1,6 @@
 # GST Filing App — AI Agent Launch & Login Guide
 
-> **Target Repository:** `D:\gst_filing_app`  
+> **Target Repository:** `D:\gst_app_latest`  
 > **Status:** Fully functional & verified.
 
 ---
@@ -12,10 +12,10 @@ When the user asks to **"launch the app"**, **"start the GST app"**, or **"launc
 Run this single command using `run_command` with `IsDaemon: true`:
 
 ```powershell
-& "D:\gst_filing_app\backend\.venv\Scripts\python.exe" "D:\gst_filing_app\scripts\launch_app.py"
+& "D:\gst_app_latest\backend\.venv\Scripts\python.exe" "D:\gst_app_latest\scripts\launch_app.py"
 ```
 
-*(Alternatively, run `D:\gst_filing_app\launch.bat` or `D:\gst_filing_app\launch.ps1`).*
+*(Alternatively, run `D:\gst_app_latest\launch.bat` or `D:\gst_app_latest\launch.ps1`).*
 
 ### What this launcher automatically handles:
 1. **PostgreSQL 16 (:5436):** Cleans any stale `postmaster.pid`, boots postgres, verifies schemas `core`, `gst`, `extraction`.

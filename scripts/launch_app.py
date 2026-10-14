@@ -21,7 +21,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-REPO_ROOT = Path("D:/gst_filing_app")
+REPO_ROOT = Path(__file__).resolve().parent.parent
 BACKEND_DIR = REPO_ROOT / "backend"
 FRONTEND_DIR = REPO_ROOT / "frontend"
 PYTHON_EXE = str(BACKEND_DIR / ".venv/Scripts/python.exe")

@@ -81,12 +81,12 @@ def wait_for_port(port: int, timeout_s: float, what: str) -> None:
 
 
 def start_postgres() -> None:
-    pg_ctl = PG_BIN / "pg_ctl.exe"
-    if not pg_ctl.exists():
-        raise RuntimeError(f"pg_ctl not found at {pg_ctl}")
     if port_open(PG_PORT):
         print(f"[pg] port {PG_PORT} already open — assuming postgres is up")
         return
+    pg_ctl = PG_BIN / "pg_ctl.exe"
+    if not pg_ctl.exists():
+        raise RuntimeError(f"pg_ctl not found at {pg_ctl}")
     PG_DATA.mkdir(parents=True, exist_ok=True)
     if not (PG_DATA / "PG_VERSION").exists():
         print(f"[pg] initdb -> {PG_DATA}")
@@ -135,6 +135,22 @@ def _pg_env() -> dict[str, str]:
 
 
 def psql(sql: str, dbname: str = "postgres") -> str:
+    if not (PG_BIN / "psql.exe").exists():
+        try:
+            import psycopg
+            with psycopg.connect(
+                f"postgresql://{PG_USER}:{PG_PASSWORD}@127.0.0.1:{PG_PORT}/{dbname}",
+                autocommit=True,
+            ) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql)
+                    if cur.description:
+                        rows = cur.fetchall()
+                        return "\n".join("|".join(str(v) for v in row) for row in rows)
+                    return ""
+        except Exception as e:
+            raise RuntimeError(f"psql via psycopg failed: {e}")
+
     proc = subprocess.run(
         [
             str(PG_BIN / "psql.exe"),
@@ -162,22 +178,25 @@ def psql(sql: str, dbname: str = "postgres") -> str:
 def seed_database() -> None:
     exists = psql("SELECT 1 FROM pg_database WHERE datname = 'gst_filing_db'") == "1"
     if not exists:
-        subprocess.run(
-            [
-                str(PG_BIN / "createdb.exe"),
-                "-h",
-                "127.0.0.1",
-                "-p",
-                str(PG_PORT),
-                "-U",
-                PG_USER,
-                PG_DB,
-            ],
-            check=True,
-            env=_pg_env(),
-            capture_output=True,
-            text=True,
-        )
+        if (PG_BIN / "createdb.exe").exists():
+            subprocess.run(
+                [
+                    str(PG_BIN / "createdb.exe"),
+                    "-h",
+                    "127.0.0.1",
+                    "-p",
+                    str(PG_PORT),
+                    "-U",
+                    PG_USER,
+                    PG_DB,
+                ],
+                check=True,
+                env=_pg_env(),
+                capture_output=True,
+                text=True,
+            )
+        else:
+            psql(f"CREATE DATABASE {PG_DB}", dbname="postgres")
         print(f"[pg] created database {PG_DB}")
     have = {
         s
@@ -199,11 +218,11 @@ def seed_database() -> None:
 
 
 def start_redis() -> None:
-    if not REDIS_BIN.exists():
-        raise RuntimeError(f"redis-server not found at {REDIS_BIN}")
     if port_open(REDIS_PORT):
         print(f"[redis] port {REDIS_PORT} already open — assuming redis is up")
         return
+    if not REDIS_BIN.exists():
+        raise RuntimeError(f"redis-server not found at {REDIS_BIN}")
     REDIS_DIR.mkdir(parents=True, exist_ok=True)
     print(f"[redis] starting on :{REDIS_PORT}")
     # Windows redis ignores daemonize; spawn detached and rely on the health check.

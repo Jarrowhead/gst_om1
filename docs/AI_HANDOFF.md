@@ -2,6 +2,7 @@
 
 **Repo:** `github.com/Sudarshan077/gst1` (branch `main`)
 **Status:** ✅ Build complete — **59 / 59 tasks done** (see [BUILD_TRACKER.md](BUILD_TRACKER.md))
+**Session Updates:** See [SESSION_SUMMARY_2026_10_14.md](SESSION_SUMMARY_2026_10_14.md) for Oct 14 launcher, instant demo login, and unified upload enhancements.
 **Purpose of this doc:** the fastest path for a fresh AI agent (or human) to boot the app, exercise it, and know exactly what data is needed. Read this first; it points to everything else.
 
 ---

@@ -231,4 +231,35 @@ test.describe("returns workspace (/app/returns/[gstin]/[fp])", () => {
       `GSTR3B-${gstin}-092026.xlsx`,
     );
   });
+
+  test("renders empty returns workspace cleanly without 404 or errors when 0 invoices exist", async ({
+    page,
+  }) => {
+    const email = uniqueEmail();
+    const token = await registerApi(email);
+    const gstin = makeGstin();
+    await createGstAccount(token, gstin);
+
+    await loginUi(page, email);
+    await page.goto(`/app/returns/${gstin}/092026`);
+
+    // The workspace sections all render cleanly without error banner
+    await expect(page.getByTestId("generate-section")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("returns-error")).toHaveCount(0);
+    await expect(page.getByTestId("validation-section")).toBeVisible();
+    await expect(page.getByTestId("hsn-section")).toBeVisible();
+    await expect(page.getByTestId("download-section")).toBeVisible();
+
+    // HSN empty state is shown
+    await expect(page.getByTestId("hsn-empty")).toBeVisible();
+    await expect(page.getByTestId("hsn-empty")).toContainText(
+      "No outward line items for this period yet",
+    );
+
+    // Validation checklist shows no blocking issues
+    await expect(page.getByTestId("validation-blocking-state")).toHaveText("✓");
+    await expect(page.getByTestId("validation-blocking-row")).toHaveCount(0);
+  });
 });

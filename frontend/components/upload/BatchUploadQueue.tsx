@@ -246,15 +246,10 @@ export function BatchUploadQueue({ gstin, fp }: { gstin: string; fp: string }) {
 
   return (
     <section
-      className="mt-10 rounded-xl border border-slate-200 p-4 dark:border-slate-800"
+      className="mt-6 space-y-6"
       data-testid="batch-upload"
     >
-      <h2 className="text-sm font-semibold">Batch upload</h2>
-      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        Select or drop up to {MAX_BATCH_FILES} files — uploaded in parallel and processed via async worker queue.
-      </p>
-
-      <div className="mt-4">
+      <div>
         <label className="block text-sm font-medium" htmlFor="batch-source">
           Capture source
         </label>
@@ -285,8 +280,8 @@ export function BatchUploadQueue({ gstin, fp }: { gstin: string; fp: string }) {
           enqueue(Array.from(e.dataTransfer.files));
         }}
         className={`
-          mt-4 cursor-pointer rounded-xl border-2 border-dashed p-6 text-center
-          ${dragOver ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30" : "border-slate-300 dark:border-slate-700"}
+          cursor-pointer rounded-xl border-2 border-dashed p-10 text-center transition-colors
+          ${dragOver ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30" : "border-slate-300 hover:border-slate-400 dark:border-slate-700 dark:hover:border-slate-600"}
         `}
       >
         <input
@@ -302,11 +297,11 @@ export function BatchUploadQueue({ gstin, fp }: { gstin: string; fp: string }) {
           data-testid="batch-file-input"
         />
         <label htmlFor="batch-file-input" className="cursor-pointer">
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Drag & drop several PDFs or images here, or click to browse
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Drag & drop PDFs or images here, or click to browse
           </p>
           <p className="mt-2 text-xs text-slate-400">
-            PDF, JPG, PNG · max 25 MB per file · up to {MAX_BATCH_FILES} files
+            PDF, JPG, PNG · max 25 MB per file · single file or batch up to {MAX_BATCH_FILES} files
           </p>
         </label>
       </div>
